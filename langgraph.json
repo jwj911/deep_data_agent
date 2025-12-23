@@ -1,0 +1,10 @@
+{
+    "dependencies": [
+        "."
+    ],
+    "graphs": {
+        "agent": "./data_agent/agent_server.py:agent"
+    },
+    "env": ".env",
+    "image_distro": "wolfi"
+}

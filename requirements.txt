@@ -1,0 +1,13 @@
+deepagents
+langchain
+langchain_community
+dashscope
+pandas
+configobj
+tabulate
+langgraph_sdk
+fastapi
+uvicorn
+pandas
+setuptools==75.8.0
+langgraph-cli[inmem]
