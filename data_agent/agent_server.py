@@ -1,7 +1,5 @@
 import os
 from typing import Literal
-from langsmith.client import _OPENAI_API_KEY
-from tavily import TavilyClient
 from deepagents import create_deep_agent
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
@@ -10,6 +8,11 @@ from langchain_community.chat_models import MoonshotChat
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.outputs import ChatResult, ChatGeneration
 from urllib3 import response
+from utils.tools import get_config
+from tavily import TavilyClient
+
+app_config = get_config()
+api_key = app_config['model']['api_key']
 
 # define base chat model
 class KimiChat(BaseChatModel):
