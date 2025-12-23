@@ -173,7 +173,6 @@ application-online.cfg
 application-dev.cfg
 .DS_Store
 utils/
-yq_utils/
 log/
 .langgraph_api/
 data_csv/
