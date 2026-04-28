@@ -3,7 +3,7 @@ services:
     image: mysql:latest
     container_name: mysql01
     environment:
-      - MYSQL_ROOT_PASSWORD=test
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=mydb
     # command: --ssl=off
     ports:

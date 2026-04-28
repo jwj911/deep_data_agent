@@ -177,3 +177,4 @@ log/
 .langgraph_api/
 data_csv/
 data_scripts/
+.playwright-mcp/

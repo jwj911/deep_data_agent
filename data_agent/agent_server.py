@@ -5,14 +5,13 @@ from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_community.chat_models import MoonshotChat
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.outputs import ChatResult, ChatGeneration
 from urllib3 import response
 from utils.tools import get_config
 from tavily import TavilyClient
 
 app_config = get_config()
-api_key = app_config['model']['api_key']
 
 # define base chat model
 class KimiChat(BaseChatModel):
@@ -34,20 +33,22 @@ class KimiChat(BaseChatModel):
             stop = stop,
         )
         return ChatResult(
-            generations = [ChatGeneration(message=HumanMessage(content=response.choices[0].message.content))]
+            generations = [ChatGeneration(message=AIMessage(content=response.choices[0].message.content))]
         )
     
     @property
     def _llm_type(self):
         return "kimi"
 
-# Set environment variables
-os.environ["TAVILY_API_KEY"] = "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"
-os.environ['MOONSHOT_API_KEY'] = "sk-QE4yo7J78RUCwrpi7iDnMNfubPOcKStcmYRQpK7ExmIH6KaJ"
+# Validate environment variables
+if not os.environ.get("TAVILY_API_KEY"):
+    raise ValueError("Environment variable TAVILY_API_KEY is not set")
+if not os.environ.get("MOONSHOT_API_KEY"):
+    raise ValueError("Environment variable MOONSHOT_API_KEY is not set")
 
 # Initialize Tavily client
 tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-print('✅ Tavily Already！')
+print("Tavily client initialized.")
 
 def internet_search(
     query: str,
@@ -74,7 +75,7 @@ Use this to run an internet search for a given query. You can specify the max nu
 """
 
 # Create the agent with proper configuration
-print("🔄 Creating agent...")
+print("Creating agent...")
 agent = create_deep_agent(
     tools=[internet_search],
     system_prompt=research_instructions,
@@ -85,15 +86,6 @@ agent = create_deep_agent(
         temperature=0.3
     )
 )
-print("✅ Agent created successfully!")
+print("Agent created successfully!")
 
-# Try a simple invoke
-print("🔍 Invoking agent with query: {content}")
-try:
-    result = agent.invoke({"messages":[HumanMessage(role="user", content="What is dataagents?")]})
-    print("📝 Result:")
-    print(result["messages"][-1].content)
-except Exception as e:
-    print(f"❌ Error during invocation: {e}")
-    import traceback
-    traceback.print_exc()
+# Agent is ready for invocation via LangGraph server
