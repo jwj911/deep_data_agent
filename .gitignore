@@ -172,7 +172,6 @@ application.cfg
 application-online.cfg
 application-dev.cfg
 .DS_Store
-utils/
 log/
 .langgraph_api/
 data_csv/
