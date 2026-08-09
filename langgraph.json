@@ -3,7 +3,7 @@
         "."
     ],
     "graphs": {
-        "agent": "./data_agent/agent_server.py:agent"
+        "agent": "./data_agent/agent_graph.py:agent"
     },
     "env": ".env",
     "image_distro": "wolfi"

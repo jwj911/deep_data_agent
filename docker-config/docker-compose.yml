@@ -1,19 +1,173 @@
+x-backend-service: &backend-service
+  image: deep-data-agent-backend:local
+  build:
+    context: ..
+    dockerfile: data_agent/Dockerfile
+  env_file:
+    - path: ../.env
+      required: false
+  environment: &backend-environment
+    MODEL_NAME: ${MODEL_NAME:-kimi-k2-turbo-preview}
+    MODEL_BASE_URL: ${MODEL_BASE_URL:-https://api.moonshot.cn/v1}
+    MODEL_TEMPERATURE: ${MODEL_TEMPERATURE:-0.3}
+    DATABASE_URL: ${COMPOSE_DATABASE_URL:-mysql+pymysql://root:test@mysql:3306/mydb}
+    REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
+    REDIS_SOCKET_TIMEOUT_SECONDS: ${REDIS_SOCKET_TIMEOUT_SECONDS:-1.0}
+    JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+    CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ENABLE_CODE_EXECUTION: ${ENABLE_CODE_EXECUTION:-false}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  networks:
+    - deep_data_network
+  restart: unless-stopped
+
 services:
   mysql:
-    image: mysql:latest
-    container_name: mysql01
+    image: mysql:8.4
     environment:
-      - MYSQL_ROOT_PASSWORD=test
-      - MYSQL_DATABASE=mydb
-    # command: --ssl=off
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-test}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mydb}
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
-      - /home/work/yunqi/database:/var/lib/mysql
-  
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - deep_data_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - deep_data_network
+    restart: unless-stopped
+
+  fastapi:
+    <<: *backend-service
+    command:
+      [
+        "uvicorn",
+        "data_agent.agent_server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    environment:
+      <<: *backend-environment
+      FASTAPI_HOST: 0.0.0.0
+      FASTAPI_PORT: 8000
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  langgraph:
+    <<: *backend-service
+    command:
+      [
+        "langgraph",
+        "dev",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "2024",
+        "--no-browser",
+        "--no-reload",
+        "--allow-blocking",
+        "--config",
+        "langgraph.json",
+      ]
+    ports:
+      - "${LANGGRAPH_PORT:-2024}:2024"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2024/info', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  frontend:
+    image: deep-data-agent-frontend:local
+    build:
+      context: ../agent_chatui
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:2024}
+        NEXT_PUBLIC_ASSISTANT_ID: ${NEXT_PUBLIC_ASSISTANT_ID:-agent}
+        NEXT_PUBLIC_REST_API_URL: ${NEXT_PUBLIC_REST_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      fastapi:
+        condition: service_healthy
+      langgraph:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1/data_copilot/",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - deep_data_network
+    restart: unless-stopped
+
 networks:
-  message_network:
+  deep_data_network:
     driver: bridge
 
 volumes:
   mysql_data:
+  redis_data:

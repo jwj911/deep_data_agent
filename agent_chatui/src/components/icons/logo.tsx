@@ -13,8 +13,8 @@ export const Logo: React.FC<LogoProps> = ({ width, height, className }) => {
       alt="Logo"
       className={`object-contain ${className || ""}`}
       style={{
-        width: width || height ? 'auto' : undefined,
-        height: width || height ? 'auto' : undefined,
+        width: width || height ? "auto" : undefined,
+        height: width || height ? "auto" : undefined,
         maxWidth: width || undefined,
         maxHeight: height || undefined,
       }}

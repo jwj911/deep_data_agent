@@ -1,25 +1,25 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from "react";
 // 引入 G2 的核心类 Chart 和配置类型 G2Spec
-import { Chart, G2Spec } from '@antv/g2';
+import { Chart, G2Spec } from "@antv/g2";
 // 引入 AVA 的 Advisor 类
-import { Advisor } from '@antv/ava';
+import { Advisor } from "@antv/ava";
 
 // 定义组件 Props 接口
 interface AutoChartProps {
   // 数据通常是一个对象数组，键是字符串，值可以是数字或字符串
-  data: Record<string, any>[]; 
+  data: Record<string, any>[];
   height?: number;
   className?: string;
 }
 
-const AutoChart: React.FC<AutoChartProps> = ({ 
-  data, 
+const AutoChart: React.FC<AutoChartProps> = ({
+  data,
   height = 400,
-  className 
+  className,
 }) => {
   // 1. 指定 DOM 容器的类型为 HTMLDivElement
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   // 2. 指定图表实例的类型为 Chart，初始值为 null
   const chartInstance = useRef<Chart | null>(null);
 
@@ -36,13 +36,13 @@ const AutoChart: React.FC<AutoChartProps> = ({
     });
 
     if (results.length === 0) {
-      console.warn('[AutoChart] AVA 无法分析当前数据，未生成推荐图表。');
+      console.warn("[AutoChart] AVA 无法分析当前数据，未生成推荐图表。");
       return;
     }
 
     // 取出分数最高的推荐结果
     const bestAdvice = results[0];
-    
+
     // 这里是一个关键的 TS 处理：
     // AVA 输出的 spec 是通用的 JSON Schema，而 G2 接收的是 G2Spec。
     // 虽然结构一致，但 TS 可能会报错类型不完全匹配，所以使用 'as G2Spec' 进行断言。
@@ -81,10 +81,10 @@ const AutoChart: React.FC<AutoChartProps> = ({
   }, [data, height]); // 依赖项：数据或高度变化时重绘
 
   return (
-    <div 
-      ref={containerRef} 
+    <div
+      ref={containerRef}
       className={className}
-      style={{ width: '100%', height: height }} 
+      style={{ width: "100%", height: height }}
     />
   );
 };

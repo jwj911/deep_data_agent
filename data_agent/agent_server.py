@@ -1,99 +1,114 @@
-import os
-from typing import Literal
-from deepagents import create_deep_agent
-from openai import OpenAI
-from langchain_openai import ChatOpenAI
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_community.chat_models import MoonshotChat
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.outputs import ChatResult, ChatGeneration
-from urllib3 import response
-from utils.tools import get_config
-from tavily import TavilyClient
+from contextlib import asynccontextmanager
+from uuid import uuid4
 
-app_config = get_config()
-api_key = app_config['model']['api_key']
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-# define base chat model
-class KimiChat(BaseChatModel):
-    """ Kimi Chat Model """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.client = OpenAI(
-            api_key = os.environ.get("MOONSHOT_API_KEY"),
-            base_url = "https://api.moonshot.cn/v1"
-        )
+from data_agent.config.config import ConfigurationError, config
+from data_agent.config.database import init_db
+from data_agent.config.logger import agent_logger
+from data_agent.routes import auth, session
+from data_agent.services.agent_service import (AgentInvocationError,
+                                               global_agent_service)
 
-    def _generate(
-        self, messages, stop = None, run_manager = None, **kwargs
-    ):
-        response = self.client.chat.completions.create(
-            model = "kimi-k2-turbo-preview",
-            messages = [{"role": m.type, "content": m.content} for m in messages],
-            temperature = 0.3,
-            stop = stop,
-        )
-        return ChatResult(
-            generations = [ChatGeneration(message=HumanMessage(content=response.choices[0].message.content))]
-        )
-    
-    @property
-    def _llm_type(self):
-        return "kimi"
 
-# Set environment variables
-os.environ["TAVILY_API_KEY"] = "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"
-os.environ['MOONSHOT_API_KEY'] = "sk-QE4yo7J78RUCwrpi7iDnMNfubPOcKStcmYRQpK7ExmIH6KaJ"
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run database initialization when the FastAPI service starts."""
+    init_db()
+    yield
 
-# Initialize Tavily client
-tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-print('✅ Tavily Already！')
 
-def internet_search(
-    query: str,
-    max_results: int = 5,
-    topic: Literal["general", "news", "images", "videos", "files"] = "general",
-    include_raw_content: bool = False
-) -> dict:
-    "Run a search query using the Tavily API."
-    return tavily_client.search(
-        query,
-        max_results=max_results,
-        include_raw_content=include_raw_content,
-        topic=topic,
-    )
-
-# System prompt to steer the agent to be an expert researcher
-research_instructions = """You are an expert researcher. Your job is to conduct thorough research and then write a polished report.
-
-You have access to an internet search tool as your primary means of gathering information.Finally, translate the answer to the chinese.
-
-## `internet_search`
-
-Use this to run an internet search for a given query. You can specify the max number of results to return, the topic, and whether raw content should be included.
-"""
-
-# Create the agent with proper configuration
-print("🔄 Creating agent...")
-agent = create_deep_agent(
-    tools=[internet_search],
-    system_prompt=research_instructions,
-    model=ChatOpenAI(
-        model="kimi-k2-turbo-preview",
-        api_key=os.environ["MOONSHOT_API_KEY"],
-        base_url="https://api.moonshot.cn/v1",
-        temperature=0.3
-    )
+app = FastAPI(
+    title="Deep Data Agent API",
+    description="API for interacting with the Deep Data Agent",
+    version="1.0.0",
+    lifespan=lifespan,
 )
-print("✅ Agent created successfully!")
 
-# Try a simple invoke
-print("🔍 Invoking agent with query: {content}")
-try:
-    result = agent.invoke({"messages":[HumanMessage(role="user", content="What is dataagents?")]})
-    print("📝 Result:")
-    print(result["messages"][-1].content)
-except Exception as e:
-    print(f"❌ Error during invocation: {e}")
-    import traceback
-    traceback.print_exc()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(config.CORS_ALLOWED_ORIGINS),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(session.router, prefix="/api/sessions", tags=["sessions"])
+
+
+class QueryRequest(BaseModel):
+    query: str
+
+
+class QueryResponse(BaseModel):
+    response: str
+
+
+def _error_detail(code: str, message: str, request_id: str) -> dict[str, str]:
+    return {
+        "code": code,
+        "message": message,
+        "request_id": request_id,
+    }
+
+
+@app.post("/api/query", response_model=QueryResponse)
+async def query_agent(request: QueryRequest):
+    """Endpoint for querying the agent"""
+    request_id = uuid4().hex
+    try:
+        response = global_agent_service.invoke(
+            request.query, request_id=request_id
+        )
+        return QueryResponse(response=response)
+    except ConfigurationError as exc:
+        agent_logger.warning(
+            "Query rejected by configuration request_id=%s", request_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=_error_detail(
+                "agent_not_configured", str(exc), request_id
+            ),
+        ) from exc
+    except AgentInvocationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_error_detail(
+                "agent_upstream_error",
+                "Agent service is temporarily unavailable",
+                request_id,
+            ),
+        ) from exc
+    except Exception as exc:
+        agent_logger.exception(
+            "Unexpected query failure request_id=%s", request_id
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=_error_detail(
+                "internal_error",
+                "Internal server error",
+                request_id,
+            ),
+        ) from exc
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "data_agent.agent_server:app",
+        host=config.FASTAPI_HOST,
+        port=config.FASTAPI_PORT,
+        reload=True,
+    )

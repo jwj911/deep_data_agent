@@ -45,6 +45,7 @@ import {
   ArtifactTitle,
   useArtifactContext,
 } from "./artifact";
+import { SessionControls } from "@/components/auth-session";
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -325,8 +326,9 @@ export function Thread() {
                   </Button>
                 )}
               </div>
-              <div className="absolute top-2 right-4 flex items-center">
+              <div className="absolute top-2 right-4 flex items-center gap-2">
                 <OpenGitHubRepo />
+                <SessionControls />
               </div>
             </div>
           )}
@@ -365,7 +367,7 @@ export function Thread() {
                     height={32}
                   />
                   <span className="text-xl font-semibold tracking-tight">
-                    data agent
+                    Deep Data Agent
                   </span>
                 </motion.button>
               </div>
@@ -374,6 +376,7 @@ export function Thread() {
                 <div className="flex items-center">
                   <OpenGitHubRepo />
                 </div>
+                <SessionControls />
                 <TooltipIconButton
                   size="lg"
                   className="p-4"
@@ -438,7 +441,7 @@ export function Thread() {
                     <div className="flex items-center gap-3">
                       <Logo className="h-8 flex-shrink-0" />
                       <h1 className="text-2xl font-semibold tracking-tight">
-                        data Chat
+                        Deep Data Chat
                       </h1>
                     </div>
                   )}
@@ -479,7 +482,7 @@ export function Thread() {
                             form?.requestSubmit();
                           }
                         }}
-                        placeholder="data agent全力解答..."
+                        placeholder="Deep Data Agent 为您服务..."
                         className="field-sizing-content resize-none border-none bg-transparent p-3.5 pb-0 shadow-none ring-0 outline-none focus:ring-0 focus:outline-none"
                       />
 

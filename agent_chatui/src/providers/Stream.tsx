@@ -21,10 +21,15 @@ import { LangGraphLogoSVG } from "@/components/icons/langgraph";
 import { Label } from "@/components/ui/label";
 import { ArrowRight } from "lucide-react";
 import { PasswordInput } from "@/components/ui/password-input";
-import { getApiKey, getAuthToken } from "@/lib/api-key";
+import {
+  buildRequestHeaders,
+  getApiKey,
+  setApiKey as storeApiKey,
+} from "@/lib/api-key";
 import { useThreads } from "./Thread";
 import { toast } from "sonner";
-import { AGENT_API_URL } from "@/config";
+import { AGENT_API_URL, ASSISTANT_ID } from "@/config";
+import { resolveConnectionConfig } from "./connection";
 
 export type StateType = { messages: Message[]; ui?: UIMessage[] };
 
@@ -53,16 +58,7 @@ async function checkGraphStatus(
 ): Promise<boolean> {
   try {
     const res = await fetch(`${apiUrl}/info`, {
-      ...(apiKey && {
-        headers: {
-          "X-Api-Key": apiKey,
-        },
-      }),
-      ...{
-        headers: {
-          Authorization: `Bearer ${getAuthToken()}`,
-        },
-      },
+      headers: buildRequestHeaders(apiKey),
     });
 
     return res.ok;
@@ -85,15 +81,14 @@ const StreamSession = ({
 }) => {
   const [threadId, setThreadId] = useQueryState("threadId");
   const { getThreads, setThreads } = useThreads();
+  const headers = buildRequestHeaders(apiKey);
   const streamValue = useTypedStream({
     apiUrl,
-    apiKey: apiKey ?? undefined,
+    apiKey: apiKey?.trim() || undefined,
     assistantId,
     threadId: threadId ?? null,
     fetchStateHistory: true,
-    defaultHeaders: {
-      Authorization: `Bearer ${getAuthToken()}`, // this is where you would pass your authentication token
-    },
+    defaultHeaders: Object.keys(headers).length > 0 ? headers : undefined,
     onCustomEvent: (event, options) => {
       if (isUIMessage(event) || isRemoveUIMessage(event)) {
         options.mutate((prev) => {
@@ -135,42 +130,30 @@ const StreamSession = ({
   );
 };
 
-// Default values for the form
-const DEFAULT_ASSISTANT_ID = "agent";
-
 export const StreamProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  // Get environment variables
-  const envApiUrl: string | undefined = process.env.NEXT_PUBLIC_API_URL;
-  const envAssistantId: string | undefined =
-    process.env.NEXT_PUBLIC_ASSISTANT_ID;
-
-  // Use URL params with env var fallbacks
   const [apiUrl, setApiUrl] = useQueryState("apiUrl", {
-    defaultValue: envApiUrl || "",
+    defaultValue: AGENT_API_URL,
   });
   const [assistantId, setAssistantId] = useQueryState("assistantId", {
-    defaultValue: envAssistantId || "",
+    defaultValue: ASSISTANT_ID,
   });
 
-  // For API key, use localStorage with env var fallback
   const [apiKey, _setApiKey] = useState(() => {
     const storedKey = getApiKey();
     return storedKey || "";
   });
 
   const setApiKey = (key: string) => {
-    window.localStorage.setItem("lg:chat:apiKey", key);
-    _setApiKey(key);
+    const normalizedKey = key.trim();
+    storeApiKey(normalizedKey);
+    _setApiKey(normalizedKey);
   };
 
-  // Determine final values to use, prioritizing URL params then env vars
-  const finalApiUrl = apiUrl || envApiUrl;
-  const finalAssistantId = assistantId || envAssistantId;
+  const connection = resolveConnectionConfig(apiUrl, assistantId);
 
-  // Show the form if we: don't have an API URL, or don't have an assistant ID
-  if (!finalApiUrl || !finalAssistantId) {
+  if (!connection.apiUrl || !connection.assistantId) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center p-4">
         <div className="animate-in fade-in-0 zoom-in-95 bg-background flex max-w-3xl flex-col rounded-lg border shadow-lg">
@@ -234,7 +217,7 @@ export const StreamProvider: React.FC<{ children: ReactNode }> = ({
                 id="assistantId"
                 name="assistantId"
                 className="bg-background"
-                defaultValue={assistantId || DEFAULT_ASSISTANT_ID}
+                defaultValue={connection.assistantId}
                 required
               />
             </div>
@@ -274,8 +257,8 @@ export const StreamProvider: React.FC<{ children: ReactNode }> = ({
   return (
     <StreamSession
       apiKey={apiKey}
-      apiUrl={apiUrl}
-      assistantId={assistantId}
+      apiUrl={connection.apiUrl}
+      assistantId={connection.assistantId}
     >
       {children}
     </StreamSession>

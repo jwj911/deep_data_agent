@@ -1,0 +1,27 @@
+# 验收清单
+
+- [x] `langgraph.json` 指向存在且导出 `agent` 的图模块，导入该模块不要求 MySQL 可连接。
+- [x] FastAPI `app` 可由 Uvicorn 导入，数据库初始化位于应用生命周期而非模块导入阶段。
+- [x] `/api/health` 不调用真实模型，并返回稳定、可用于容器健康检查的响应。
+- [x] `requirements.txt` 不含重复项，且覆盖后端代码实际使用的运行时依赖。
+- [x] `.env.example` 记录数据库、Redis、模型、服务地址和代码执行开关，所有密钥均为占位值。
+- [x] 缺少模型密钥时，确定性测试和健康检查仍可运行，模型查询返回可定位且不泄密的配置错误。
+- [x] Redis 不可用时，Agent 可降级为无缓存运行并输出脱敏诊断日志。
+- [x] 默认配置下 Agent 工具列表不包含任意 Python 代码执行工具。
+- [x] Agent 内部异常不会以成功响应中的 `Error:` 文本返回，FastAPI 使用明确的非 2xx 错误结构。
+- [x] 前端所有 `@/lib/*` 引用均有兼容实现，不存在未导出的配置引用。
+- [x] Stream、Thread Client 和状态检查使用同一有效 LangGraph 地址与助手 ID。
+- [x] API Key 与 JWT 请求头可同时正确保留；空值不会生成 `Authorization: Bearer null`、`Bearer undefined` 或空 `X-Api-Key`。
+- [x] 未配置登录地址时，认证失败只清理失效 Token 并提示，不跳转到无效地址。
+- [x] Next.js 构建未启用 `ignoreBuildErrors` 或 `ignoreDuringBuilds`。
+- [x] 前端类型检查、Lint、格式检查和生产构建全部通过。
+- [x] 后端测试覆盖健康检查、图导出、配置错误、Redis 降级、代码执行默认关闭和查询错误映射。
+- [x] Python 源码与测试通过 `isort --check-only`。
+- [x] `docker compose config` 通过，所有项目镜像从正确上下文构建成功。
+- [x] Compose 中 MySQL、Redis、FastAPI、LangGraph 和前端服务具有正确端口、网络、变量与就绪依赖。
+- [x] 前端公开 LangGraph 地址在构建阶段注入，浏览器配置中不包含仅容器内部可解析的主机名。
+- [x] Compose 启动后，前端静态入口、FastAPI `/api/health` 和 LangGraph `/info` 均可访问。
+- [x] 使用人工提供的有效密钥可从前端创建线程并向 `agent` 图提交一条消息。
+- [x] `README.md` 记录本地开发、Docker 启动、访问地址、验证命令、可选认证和高风险工具开关。
+- [x] 日志、错误响应、规格文档和版本控制差异中不包含真实 API Key、密码或 Token。
+- [x] `git diff --check` 通过，任务开始前已有的用户改动未被覆盖或回滚。

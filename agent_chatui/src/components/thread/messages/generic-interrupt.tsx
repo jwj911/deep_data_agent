@@ -131,7 +131,10 @@ export function GenericInterruptView({
                         </td>
                         <td className="px-4 py-2 text-sm text-gray-500">
                           {key === "多维表格" && typeof value === "string" ? (
-                            <LinkButton url={value} title="查看数据结果" />
+                            <LinkButton
+                              url={value}
+                              title="查看数据结果"
+                            />
                           ) : (
                             renderInterruptStateItem(value)
                           )}

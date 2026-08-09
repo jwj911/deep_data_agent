@@ -154,10 +154,7 @@ const defaultComponents: any = {
   table: ({ className, ...props }: { className?: string }) => (
     <div className="my-5 overflow-x-auto rounded-lg border border-gray-200">
       <table
-        className={cn(
-          "w-full border-separate border-spacing-0",
-          className,
-        )}
+        className={cn("w-full border-separate border-spacing-0", className)}
         {...props}
       />
     </div>

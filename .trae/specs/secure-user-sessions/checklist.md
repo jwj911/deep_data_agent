@@ -1,0 +1,32 @@
+# 验收清单
+
+- [x] 代码中不再存在硬编码 JWT 密钥，示例配置仅包含非生产占位值。
+- [x] JWT 密钥缺失、过短或为占位值时，认证与会话接口返回稳定 `503 auth_not_configured`，健康检查仍可用。
+- [x] JWT 使用用户 ID 字符串作为 `sub`，并校验签名、算法和过期时间。
+- [x] 无 Token、畸形 Token、错误签名、过期 Token、非法 subject 和已删除用户均返回统一 HTTP 401。
+- [x] `/api/auth/me` 只返回当前用户的安全公开字段。
+- [x] 注册接口校验用户名、邮箱和密码，数据库中仅保存密码哈希。
+- [x] 重复用户名、重复邮箱和并发唯一约束冲突均返回 HTTP 409，且不暴露数据库异常。
+- [x] 登录成功返回 `access_token`、`token_type = bearer` 和过期秒数，错误凭据统一返回 HTTP 401。
+- [x] `CORS_ALLOWED_ORIGINS` 被解析为明确白名单，启用凭据时不允许通配符来源。
+- [x] 白名单来源的预检请求成功，非白名单来源不获得允许来源响应头。
+- [x] 全部 `/api/sessions` 接口均要求有效当前用户，不再存在固定 `user_id = 1`。
+- [x] 会话列表只返回当前用户资源。
+- [x] 单会话、消息读取、消息创建和删除均在服务层同时按 `session_id` 与 `user_id` 过滤。
+- [x] 用户 A 访问用户 B 会话的读、写、删操作均返回 HTTP 404，用户 B 数据保持不变。
+- [x] 空白/超长标题、空白/超长消息和非法角色返回 HTTP 422，数据库无部分写入。
+- [x] 前端使用 `NEXT_PUBLIC_REST_API_URL` 调用 FastAPI，不再引用 `NEXT_PUBLIC_LOGIN_API_URL`。
+- [x] 前端登录与注册表单和后端请求/响应格式一致。
+- [x] 前端使用 `sessionStorage` 保存 Token，代码不再从 `localStorage` 读取或写入 `auth_token`。
+- [x] 登录后 `/api/auth/me` 验证成功，登出或 FastAPI 401 会清除 Token 并进入登录页。
+- [x] LangGraph 或第三方请求返回 401/403 时，不会清除第一方登录状态。
+- [x] 后端确定性测试覆盖认证配置、注册登录、当前用户、Token 异常、CORS 和双用户会话隔离。
+- [x] 后端测试使用独立测试数据库，不访问开发 MySQL、Redis 或外部 AI 服务。
+- [x] 后端测试与 `isort --check-only` 通过。
+- [x] 前端类型检查、Lint、格式检查和生产构建通过。
+- [x] Docker Compose 配置和镜像构建通过，五个服务保持健康。
+- [x] 容器冒烟验证可完成双用户注册、登录、`/me` 和会话越权拒绝。
+- [x] `.env.example` 与 README 完整记录 JWT、CORS、REST API、登录流程和验证命令。
+- [x] 日志、响应、文档、工作区差异与容器配置中不包含有效 JWT 密钥、Token、密码或 API Key。
+- [x] `git diff --check` 通过，上一轮已有改动未被覆盖或回滚。
+- [x] 测试与构建生成物已清理，规格文档保留。
