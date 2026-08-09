@@ -172,7 +172,6 @@ application.cfg
 application-online.cfg
 application-dev.cfg
 .DS_Store
-utils/
 log/
 .langgraph_api/
 data_csv/
@@ -182,3 +181,5 @@ data_scripts/
 agent_chatui/.pnpm-store/
 agent_chatui/.tmp/
 agent_chatui/*.tsbuildinfo
+
+.playwright-mcp/
