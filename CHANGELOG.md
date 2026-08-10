@@ -26,6 +26,10 @@
   门禁通过；构建后再次执行 `pnpm lint`，仍以零警告通过。
 - CI workflow 与 release contract 的本地等价检查通过，包括 Compose 配置、
   配置漂移、凭据和工作区卫生契约。
+- 目标提交 `14b1b8ee42351cc446febfa9695761be402ae7e7` 的 GitHub Actions run
+  `31353045802`（https://github.com/jwj911/deep_data_agent/actions/runs/31353045802）
+  为 `completed/success`；Backend、Frontend 和 Release Contracts 均为
+  `completed/success`，`head_sha` 精确匹配 `main` push。
 - 发布镜像为后端
   `sha256:c504a231c0c500994805be6fd022f1a633fd16a8d3b12e0f681b1d4c51f4acab`
   与前端

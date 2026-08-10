@@ -25,6 +25,6 @@
 - [x] 当前源码的前后端镜像构建成功，MySQL、Redis、FastAPI、LangGraph 和前端五服务健康。
 - [x] 容器冒烟覆盖双用户注册、登录、`/me`、无 Token 401、跨用户会话 404、数据不变和 CORS 白名单。
 - [x] 临时数据和生成物已清理，`git diff --check` 与工作区卫生检查通过，既有用户改动未被覆盖或回滚。
-- [ ] 本轮提交不包含 `.env`、有效凭据、构建产物、缓存或非预期业务数据。
-- [ ] `main` 已推送到 `origin/main`，本地与远端提交一致且工作区干净。
-- [ ] GitHub Hosted CI 的 Backend、Frontend 和 Release Contracts 三个 job 均成功。
+- [x] 本轮提交不包含 `.env`、有效凭据、构建产物、缓存或非预期业务数据。
+- [x] `main` 已推送到 `origin/main`，本地与远端提交一致且工作区干净。
+- [x] GitHub Hosted CI 的 Backend、Frontend 和 Release Contracts 三个 job 均成功。

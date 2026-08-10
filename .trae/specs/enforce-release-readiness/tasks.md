@@ -30,11 +30,11 @@
   - [x] SubTask 5.4: 清理临时用户、会话、消息和构建产物，执行凭据扫描、`git diff --check` 与工作区卫生检查。
   - [x] SubTask 5.5: 更新规格任务与验收清单，形成可追溯的发布证据。
 
-- [ ] Task 6: 完成远程发布验证：提交并推送本轮改动，确认 GitHub Hosted CI 在远端实际通过。
-  - [ ] SubTask 6.1: 提交前复核暂存范围、凭据与生成物，确保只包含本轮预期源码、测试、CI、规格和文档。
-  - [ ] SubTask 6.2: 创建原子化提交；若远端有新提交，采用保留双方成果的方式整合并重新执行关键门禁。
-  - [ ] SubTask 6.3: 推送 `main` 到 `origin/main`，确认本地与远端提交一致且工作区干净。
-  - [ ] SubTask 6.4: 通过 GitHub Actions API 确认 `release-readiness` workflow 的 Backend、Frontend、Release Contracts 三个 job 均成功。
+- [x] Task 6: 完成远程发布验证：提交并推送本轮改动，确认 GitHub Hosted CI 在远端实际通过。
+  - [x] SubTask 6.1: 提交前复核暂存范围、凭据与生成物，确保只包含本轮预期源码、测试、CI、规格和文档。
+  - [x] SubTask 6.2: 创建原子化提交；若远端有新提交，采用保留双方成果的方式整合并重新执行关键门禁。
+  - [x] SubTask 6.3: 推送 `main` 到 `origin/main`，确认本地与远端提交一致且工作区干净。
+  - [x] SubTask 6.4: 通过 GitHub Actions API 确认 `release-readiness` workflow 的 Backend、Frontend、Release Contracts 三个 job 均成功。
 
 # Task Dependencies
 
