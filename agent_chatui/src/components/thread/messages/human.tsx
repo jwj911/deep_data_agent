@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { BranchSwitcher, CommandBar } from "./shared";
 import { MultimodalPreview } from "@/components/thread/MultimodalPreview";
 import { isBase64ContentBlock } from "@/lib/multimodal-utils";
+import { createRunCorrelation } from "@/lib/request-id";
 
 function EditableContent({
   value,
@@ -53,9 +54,12 @@ export function HumanMessage({
     setIsEditing(false);
 
     const newMessage: Message = { type: "human", content: value };
+    const correlation = createRunCorrelation();
     thread.submit(
       { messages: [newMessage] },
       {
+        config: correlation.config,
+        metadata: correlation.metadata,
         checkpoint: parentCheckpoint,
         streamMode: ["values"],
         streamSubgraphs: true,

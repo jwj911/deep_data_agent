@@ -3,7 +3,8 @@
 Deep Data Agent 是一个前后端分离的 AI 数据探索项目。后端同时提供
 FastAPI REST 服务和 LangGraph 图服务，前端使用 Next.js 静态导出，
 MySQL 用于用户、会话与消息持久化，Redis 用于可降级缓存。第一方注册、
-登录与会话所有权校验由 FastAPI 提供。
+登录与会话所有权校验由 FastAPI 提供。前端、FastAPI、LangGraph、Agent、
+工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊断链路。
 
 ## 服务与访问地址
 
@@ -42,7 +43,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m pytest
-python -m isort --check-only data_agent tests
+python -m isort --check-only data_agent tests scripts
 ```
 
 分别启动 FastAPI 与 LangGraph：
@@ -147,6 +148,42 @@ API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览
 命令输出粘贴到终端记录、文档、Issue 或提交中。密钥、Token 和 `.env` 绝不进入
 版本控制。
 
+## 可观测性与诊断
+
+FastAPI 接受严格的 32 位小写十六进制 `X-Request-ID`。合法值会在响应头中原样
+返回；缺失或非法值会被替换，非法原值不会写入日志。CORS 白名单来源可以发送并
+读取该响应头。前端 REST 请求和每次 LangGraph 提交、重试或人工中断处理都会
+生成独立 ID；认证失败页面会显示可用于排障的诊断 ID。
+
+后端日志使用单行 JSON，包含 UTC 时间、服务名、事件名、结果、耗时和可用的
+请求 ID。事件只允许固定低基数字段，不记录提示词、消息正文、用户名、邮箱、
+请求体、查询参数、客户端 IP、工具输入输出或原始异常文本。凭据、Token、密码和
+连接串会再次脱敏。
+
+本阶段不部署外部 OpenTelemetry、Prometheus、Grafana 或自动告警渠道。日志写入
+标准输出和本地轮转文件；默认单文件上限 10 MiB、保留 3 份备份。Docker
+`json-file` 日志默认每份 10 MiB、保留 3 份。相关变量如下：
+
+- `SERVICE_NAME`：结构化日志服务名。
+- `LOG_FILE_PATH`：轮转文件路径；设为空可关闭文件输出。
+- `LOG_MAX_BYTES`：单个文件上限，必须为正整数。
+- `LOG_BACKUP_COUNT`：备份数量，必须为正整数。
+- `DOCKER_LOG_MAX_SIZE`、`DOCKER_LOG_MAX_FILES`：容器日志上限。
+
+诊断导出必须由人工触发。按请求 ID 生成倒序时间线：
+
+```powershell
+python scripts/export_diagnostics.py `
+  --input deep_data_agent.log `
+  --request-id 0123456789abcdef0123456789abcdef `
+  --output diagnostic-report.json
+```
+
+省略 `--request-id` 可生成发布诊断摘要。报告会折叠健康检查，汇总请求数、
+HTTP 错误率、平均/最大/P95 延迟、缓存降级和模型失败，并产生本地告警信号，
+但不会上传或外发。输入中的无效行只计数，不回显原文；报告仍须在分享前人工
+复核，且不得使用包含真实业务数据的日志做自动验证。
+
 ## 高风险工具
 
 任意 Python 代码执行工具默认关闭：
@@ -160,14 +197,13 @@ ENABLE_CODE_EXECUTION=false
 
 ## 验证清单
 
-后端确定性测试不调用真实模型或搜索服务。前两轮完成规格建立了 60 项基线测试；
-当前发布治理工作树加入 ORM/UTC 兼容性回归后共 64 项，覆盖健康检查、LangGraph
-导出、缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、
-CORS、双用户会话隔离和时间字段兼容：
+后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph 导出、
+缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
+双用户会话隔离、时间字段兼容、请求 ID、结构化脱敏事件和诊断报告：
 
 ```powershell
 python -m pytest
-python -m isort --check-only data_agent tests
+python -m isort --check-only data_agent tests scripts
 ```
 
 前端质量门禁：
@@ -211,5 +247,7 @@ LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：当前架构、能力边界、质量状态与技术债。
-- `.trae/documents/roadmap.md`：已完成基线、当前发布治理和后续候选迭代。
+- `.trae/documents/roadmap.md`：已完成基线、当前可观测性治理和后续候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
+- `.trae/specs/add-observability-diagnostics/`：请求关联、结构化事件、日志保留和
+  人工诊断导出规格。

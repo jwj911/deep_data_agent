@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +7,9 @@ from pydantic import BaseModel
 from data_agent.config.config import ConfigurationError, config
 from data_agent.config.database import init_db
 from data_agent.config.logger import agent_logger
+from data_agent.observability.context import get_or_create_request_id
+from data_agent.observability.middleware import (REQUEST_ID_HEADER,
+                                                 ObservabilityMiddleware)
 from data_agent.routes import auth, session
 from data_agent.services.agent_service import (AgentInvocationError,
                                                global_agent_service)
@@ -32,8 +34,10 @@ app.add_middleware(
     allow_origins=list(config.CORS_ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
+    expose_headers=[REQUEST_ID_HEADER],
 )
+app.add_middleware(ObservabilityMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(session.router, prefix="/api/sessions", tags=["sessions"])
@@ -58,7 +62,7 @@ def _error_detail(code: str, message: str, request_id: str) -> dict[str, str]:
 @app.post("/api/query", response_model=QueryResponse)
 async def query_agent(request: QueryRequest):
     """Endpoint for querying the agent"""
-    request_id = uuid4().hex
+    request_id = get_or_create_request_id()
     try:
         response = global_agent_service.invoke(
             request.query, request_id=request_id

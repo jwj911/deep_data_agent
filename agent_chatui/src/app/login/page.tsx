@@ -31,25 +31,30 @@ function getErrorMessage(error: unknown, mode: AuthMode): string {
     return "无法连接认证服务，请检查网络后重试。";
   }
 
+  const withRequestId = (message: string) =>
+    error.requestId ? `${message} 诊断 ID：${error.requestId}` : message;
+
   if (error.code === "invalid_credentials") {
-    return "用户名或密码错误。";
+    return withRequestId("用户名或密码错误。");
   }
   if (error.code === "registration_conflict") {
-    return "用户名或邮箱已被注册。";
+    return withRequestId("用户名或邮箱已被注册。");
   }
   if (error.code === "auth_not_configured") {
-    return "认证服务尚未完成配置。";
+    return withRequestId("认证服务尚未完成配置。");
   }
   if (error.status === 422) {
-    return mode === "register"
-      ? "请检查用户名、邮箱和密码是否符合要求。"
-      : "请填写有效的用户名和密码。";
+    return withRequestId(
+      mode === "register"
+        ? "请检查用户名、邮箱和密码是否符合要求。"
+        : "请填写有效的用户名和密码。",
+    );
   }
   if (error.code === "invalid_response") {
-    return "认证服务返回了无效响应，请稍后重试。";
+    return withRequestId("认证服务返回了无效响应，请稍后重试。");
   }
 
-  return `认证请求失败（${error.status || "网络错误"}）。`;
+  return withRequestId(`认证请求失败（${error.status || "网络错误"}）。`);
 }
 
 export default function LoginPage() {

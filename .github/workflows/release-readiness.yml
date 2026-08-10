@@ -37,7 +37,7 @@ jobs:
         run: python -B -m pytest -q
 
       - name: Check backend import order
-        run: python -m isort --check-only data_agent tests
+        run: python -m isort --check-only data_agent tests scripts
 
   frontend:
     name: Frontend

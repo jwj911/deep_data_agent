@@ -137,7 +137,19 @@ class Config:
         self.CORS_ALLOWED_ORIGINS = _env_origins(
             "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
         )
+        self.SERVICE_NAME = os.environ.get(
+            "SERVICE_NAME", "deep-data-agent"
+        ).strip()
         self.LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+        self.LOG_FILE_PATH = os.environ.get(
+            "LOG_FILE_PATH", "deep_data_agent.log"
+        ).strip()
+        self.LOG_MAX_BYTES = _env_positive_int(
+            "LOG_MAX_BYTES", 10 * 1024 * 1024
+        )
+        self.LOG_BACKUP_COUNT = _env_positive_int(
+            "LOG_BACKUP_COUNT", 3
+        )
 
     def require_model_api_key(self) -> str:
         """Return the model API key or raise a stable configuration error."""

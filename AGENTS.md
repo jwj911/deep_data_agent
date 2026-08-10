@@ -36,8 +36,9 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-当前正式迭代是 `.trae/specs/enforce-release-readiness/`。它聚焦前后端质量门禁、
-CI、配置漂移防护、发布文档和五服务复验，不包含新的业务功能。
+发布就绪治理已经完成。当前正式迭代是
+`.trae/specs/add-observability-diagnostics/`，聚焦请求关联、结构化脱敏事件、
+有界日志保留和人工诊断导出，不包含外部监控平台或自动告警通知。
 
 ## 3. 关键结构
 
@@ -69,11 +70,15 @@ deep_data_agent/
 │   ├── agent_server.py
 │   ├── config/
 │   ├── models/
+│   ├── observability/
 │   ├── routes/
 │   ├── services/
 │   └── tools/
-└── docker-config/
-    └── docker-compose.yml
+├── docker-config/
+│   └── docker-compose.yml
+└── scripts/
+    ├── check_release_contracts.py
+    └── export_diagnostics.py
 ```
 
 ### 3.1 服务入口
@@ -94,6 +99,8 @@ deep_data_agent/
 - 第一方 JWT 存储在 `sessionStorage`，只附加到 FastAPI 请求。
 - 可选 LangGraph API Key 使用独立 `localStorage` 键；非 FastAPI 的 401/403 不得
   清除第一方登录态。
+- REST 请求使用 `X-Request-ID`；LangGraph run 通过 `configurable` 与
+  `metadata` 传递独立请求 ID。不得把提示词、消息正文或用户身份写入关联字段。
 
 ## 4. 配置契约
 
@@ -110,6 +117,9 @@ deep_data_agent/
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | 正整数 |
 | `CORS_ALLOWED_ORIGINS` | FastAPI 来源白名单 | 逗号分隔绝对来源，禁止通配符 |
 | `ENABLE_CODE_EXECUTION` | 任意 Python 执行开关 | 默认 `false`，仅受控环境人工启用 |
+| `SERVICE_NAME`、`LOG_LEVEL` | 结构化事件来源与级别 | 服务名保持低基数 |
+| `LOG_FILE_PATH`、`LOG_MAX_BYTES`、`LOG_BACKUP_COUNT` | 本地日志轮转 | 大小与备份数必须为正整数 |
+| `DOCKER_LOG_MAX_SIZE`、`DOCKER_LOG_MAX_FILES` | 容器日志轮转 | 保持有界默认值 |
 | `COMPOSE_DATABASE_URL`、`COMPOSE_REDIS_URL` | 容器内部连接 | 使用 `mysql`、`redis` 服务名 |
 | `MYSQL_PORT`、`REDIS_PORT` 等 | 宿主机端口 | 端口冲突时只重映射宿主侧 |
 
@@ -125,9 +135,10 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m pytest
-python -m isort --check-only data_agent tests
+python -m isort --check-only data_agent tests scripts
 python -m uvicorn data_agent.agent_server:app --host 0.0.0.0 --port 8000
 langgraph dev --host 0.0.0.0 --port 2024 --no-browser --allow-blocking
+python scripts/export_diagnostics.py --input deep_data_agent.log --output diagnostic-report.json
 ```
 
 ### 5.2 前端
@@ -162,8 +173,7 @@ docker compose --env-file .env -f docker-config/docker-compose.yml ps
 
 ## 6. 测试与验收策略
 
-前两轮完成规格建立了 60 项确定性测试。本轮加入 4 项 ORM/UTC 兼容性回归后，
-当前工作树共 64 项；测试使用 SQLite 等隔离依赖，不访问开发 MySQL、Redis、
+测试使用 SQLite、离线 Redis 替身和脱敏日志样本，不访问开发 MySQL、Redis、
 Moonshot 或 Tavily。
 
 覆盖范围包括：
@@ -173,6 +183,8 @@ Moonshot 或 Tavily。
 - JWT 配置、注册、登录、`/me`、Token 异常和 CORS。
 - 双用户会话读写删隔离及输入校验无部分写入。
 - SQLAlchemy 共享元数据、UTC 默认值、序列化和会话排序。
+- 请求 ID 校验与传播、CORS 响应头、结构化事件字段和异常脱敏。
+- 诊断报告过滤、倒序时间线、高频折叠、延迟指标和本地告警信号。
 
 文档或窄范围改动至少执行相关检查和定向 `git diff --check`。发布候选还必须执行
 前端类型、零警告 Lint、格式、构建、Compose 解析、凭据扫描、当前源码镜像重建
@@ -188,6 +200,7 @@ Moonshot 或 Tavily。
 - 会话和消息在服务层同时按 `session_id` 与 `user_id` 过滤；越权统一返回 404。
 - 第一方 Token 使用 `sessionStorage`，不写 URL、日志或错误提示。
 - 代码执行默认关闭；配置和日志具有占位值识别与敏感值脱敏边界。
+- 日志使用固定结构化字段和有界轮转；诊断导出只读、人工触发且不自动外发。
 
 ### 仍有限制
 
@@ -197,15 +210,14 @@ Moonshot 或 Tavily。
 - 数据库没有版本化迁移工具，仍由 `Base.metadata.create_all()` 初始化。
 - 旧的已失效服务凭据仍在 Git 历史中；历史清理由人工在干净工作区另行处理。
 
-## 8. 当前发布债
+## 8. 当前技术边界
 
-- 发布就绪迭代仍需完成自动 CI 与配置漂移防护。
-- 当前前端类型检查、零警告 Lint 和格式检查通过。
-- 当前本机 Node.js 25.2.1 超出支持的 22.x 范围，前端全量门禁必须在受支持版本
-  复验，不能以该环境中的局部检查替代发布证据。
-- 当前源码镜像的五服务健康检查、双用户认证隔离和 CORS 冒烟仍是最终发布门槛。
-- 观测性目前只有基础脱敏日志和 `request_id`；统一 Trace、指标、告警和发布看板
-  属于后续候选，不应写成现有能力。
+- 结构化事件和诊断报告是轻量本地基线，不等同于分布式追踪平台或长期指标存储。
+- 当前没有 OpenTelemetry Collector、Prometheus、Grafana、SLO 看板或自动告警
+  通知；引入这些组件前必须另行评审成本、保留周期和访问控制。
+- 本机 Node.js 25.2.1 超出支持的 22.x 范围，最终前端发布证据以 Node.js 22 的
+  GitHub Hosted CI 和 Docker 构建为准。
+- LangGraph 本地服务仍为 noop 认证，日志与诊断报告不能作为授权或审计替代品。
 
 ## 9. 相关文档
 
@@ -215,4 +227,5 @@ Moonshot 或 Tavily。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
 - `.trae/specs/secure-user-sessions/`：第一方认证与隔离规格。
-- `.trae/specs/enforce-release-readiness/`：当前发布治理规格。
+- `.trae/specs/enforce-release-readiness/`：已完成的发布治理规格。
+- `.trae/specs/add-observability-diagnostics/`：当前可观测性与诊断规格。

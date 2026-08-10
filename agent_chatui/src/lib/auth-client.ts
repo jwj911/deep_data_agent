@@ -1,5 +1,6 @@
 import { REST_API_URL } from "@/config";
 import { clearAuthToken, getAuthToken, setAuthToken } from "@/lib/api-key";
+import { createRequestId, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 export const AUTH_UNAUTHORIZED_EVENT = "auth:unauthorized";
 
@@ -29,6 +30,7 @@ export class AuthApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = "AuthApiError";
@@ -76,6 +78,7 @@ async function readJson(response: Response): Promise<unknown> {
       response.status || 502,
       "invalid_response",
       "Authentication service returned an invalid response",
+      response.headers.get(REQUEST_ID_HEADER) ?? undefined,
     );
   }
 }
@@ -99,7 +102,12 @@ async function createApiError(response: Response): Promise<AuthApiError> {
         ? detail
         : `Authentication request failed with status ${response.status}`;
 
-  return new AuthApiError(response.status, code, message);
+  return new AuthApiError(
+    response.status,
+    code,
+    message,
+    response.headers.get(REQUEST_ID_HEADER) ?? undefined,
+  );
 }
 
 async function request(
@@ -117,7 +125,9 @@ async function request(
   }
 
   const headers = new Headers(init.headers);
+  const requestId = createRequestId();
   headers.set("Accept", "application/json");
+  headers.set(REQUEST_ID_HEADER, requestId);
   if (authenticated) {
     const token = getAuthToken();
     if (token) {
@@ -125,7 +135,17 @@ async function request(
     }
   }
 
-  const response = await fetch(url, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers });
+  } catch {
+    throw new AuthApiError(
+      0,
+      "network_error",
+      "Authentication service is unreachable",
+      requestId,
+    );
+  }
   if (response.status === 401 && isRestApiUrl(url)) {
     notifyUnauthorized();
   }
@@ -136,7 +156,7 @@ async function request(
   return response;
 }
 
-function parseUser(value: unknown): AuthUser {
+function parseUser(value: unknown, requestId?: string): AuthUser {
   if (
     !isRecord(value) ||
     typeof value.id !== "number" ||
@@ -147,6 +167,7 @@ function parseUser(value: unknown): AuthUser {
       502,
       "invalid_response",
       "Authentication service returned an invalid user",
+      requestId,
     );
   }
 
@@ -157,7 +178,7 @@ function parseUser(value: unknown): AuthUser {
   };
 }
 
-function parseToken(value: unknown): TokenResponse {
+function parseToken(value: unknown, requestId?: string): TokenResponse {
   if (
     !isRecord(value) ||
     typeof value.access_token !== "string" ||
@@ -170,6 +191,7 @@ function parseToken(value: unknown): TokenResponse {
       502,
       "invalid_response",
       "Authentication service returned an invalid token",
+      requestId,
     );
   }
 
@@ -192,7 +214,10 @@ export async function registerUser(
     },
     false,
   );
-  return parseUser(await readJson(response));
+  return parseUser(
+    await readJson(response),
+    response.headers.get(REQUEST_ID_HEADER) ?? undefined,
+  );
 }
 
 export async function loginUser(
@@ -211,7 +236,10 @@ export async function loginUser(
     },
     false,
   );
-  return parseToken(await readJson(response));
+  return parseToken(
+    await readJson(response),
+    response.headers.get(REQUEST_ID_HEADER) ?? undefined,
+  );
 }
 
 export async function getCurrentUser(): Promise<AuthUser> {
@@ -222,7 +250,10 @@ export async function getCurrentUser(): Promise<AuthUser> {
     },
     true,
   );
-  return parseUser(await readJson(response));
+  return parseUser(
+    await readJson(response),
+    response.headers.get(REQUEST_ID_HEADER) ?? undefined,
+  );
 }
 
 export async function establishSession(

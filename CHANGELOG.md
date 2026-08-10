@@ -17,11 +17,21 @@
   登录配置从环境示例和运行文档中移除。
 - 项目分析、Roadmap、README、环境示例和 AI 助手指南与当前五服务架构及认证边界
   对齐。
+- FastAPI 全路由统一生成、校验并回传 `X-Request-ID`；前端 REST 与 LangGraph
+  run 使用同格式诊断 ID。
+- 后端日志改为 UTC JSON Lines，HTTP、Agent、模型、缓存和工具事件只允许固定
+  低基数字段，并隔离第三方 logger。
+- 本地文件与 Docker 日志增加大小和备份数量上限，避免日志无界占用磁盘。
+- 新增人工诊断导出，可按请求 ID 生成倒序时间线，折叠健康检查并汇总 HTTP
+  错误率、延迟、缓存降级和模型失败信号。
 
 ### 当前验证证据
 
-- `python -m pytest -q`：75 项通过，0 个警告；
-  `python -m isort --check-only data_agent tests`：通过。
+- `python -m pytest -q`：103 项通过，0 个警告；
+  `python -m isort --check-only data_agent tests scripts`：通过。
+- 新增 28 项确定性测试，覆盖请求 ID 校验与传播、CORS 关联头、LangGraph 配置、
+  结构化字段白名单、异常脱敏、轮转配置、诊断过滤、倒序、折叠、指标、告警信号
+  和发布配置漂移。
 - 前端 `pnpm typecheck`、`pnpm lint`、`pnpm format:check` 和 `pnpm build` 四项
   门禁通过；构建后再次执行 `pnpm lint`，仍以零警告通过。
 - CI workflow 与 release contract 的本地等价检查通过，包括 Compose 配置、
@@ -58,6 +68,9 @@
   有效模型/JWT 配置。环境不满足时，不得把静态检查结果等同于容器发布证据。
 - LangGraph 本地服务仍使用 noop 认证；任意 Python 代码执行工具虽默认关闭，但
   显式启用后仍不具备安全沙箱。
+- 当前诊断能力使用本地轮转日志和 Docker 日志，不包含 OpenTelemetry、
+  Prometheus、Grafana、长期存储或自动告警通知；这些能力需要单独评审访问控制、
+  成本和保留周期。
 
 ## [0.2.0] - 2026-08-10
 

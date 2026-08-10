@@ -22,13 +22,32 @@ VALID_ENV_EXAMPLE = """\
 MOONSHOT_API_KEY=your_moonshot_api_key_here
 TAVILY_API_KEY=your_tavily_api_key_here
 JWT_SECRET_KEY=your_jwt_secret_key_here
+SERVICE_NAME=deep-data-agent
+LOG_FILE_PATH=deep_data_agent.log
+LOG_MAX_BYTES=10485760
+LOG_BACKUP_COUNT=3
+DOCKER_LOG_MAX_SIZE=10m
+DOCKER_LOG_MAX_FILES=3
 """
 VALID_COMPOSE = """\
+x-bounded-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+    max-file: ${DOCKER_LOG_MAX_FILES:-3}
+
 services:
+  mysql:
+    logging: *bounded-logging
+  redis:
+    logging: *bounded-logging
   backend:
     environment:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-mysql+pymysql://app:app@mysql:3306/app}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
+    logging: *bounded-logging
+  frontend:
+    logging: *bounded-logging
 """
 
 
@@ -160,6 +179,48 @@ def test_env_example_placeholder_must_be_exact(tmp_path, variable):
     assert len(violations) == 1
     assert violations[0].rule == "ENV_EXAMPLE_PLACEHOLDER"
     assert violations[0].path == ENV_EXAMPLE_PATH
+
+
+@pytest.mark.parametrize(
+    "variable",
+    sorted(contracts.OBSERVABILITY_DEFAULTS),
+)
+def test_observability_env_defaults_must_be_exact(tmp_path, variable):
+    scan_files = _create_minimal_repository(tmp_path)
+    expected = contracts.OBSERVABILITY_DEFAULTS[variable]
+    invalid_env = VALID_ENV_EXAMPLE.replace(
+        f"{variable}={expected}",
+        f"{variable}=invalid-default",
+    )
+    _write(tmp_path, ENV_EXAMPLE_PATH, invalid_env)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    matching = [
+        item
+        for item in violations
+        if item.rule == "OBSERVABILITY_ENV_DEFAULT"
+    ]
+    assert len(matching) == 1
+    assert matching[0].path == ENV_EXAMPLE_PATH
+
+
+def test_compose_log_retention_contract_is_required(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        COMPOSE_PATH,
+        VALID_COMPOSE.replace(
+            "max-size: ${DOCKER_LOG_MAX_SIZE:-10m}",
+            "max-size: 100m",
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "COMPOSE_LOG_RETENTION" for item in violations
+    )
 
 
 @pytest.mark.parametrize(

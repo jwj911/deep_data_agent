@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Decision, DecisionWithEdits, HITLRequest, SubmitType } from "../types";
 import { buildDecisionFromState, createDefaultHumanResponse } from "../utils";
+import { createRunCorrelation } from "@/lib/request-id";
 
 interface UseInterruptedActionsInput {
   interrupt: Interrupt<HITLRequest>;
@@ -86,9 +87,12 @@ export default function useInterruptedActions({
 
   const resumeRun = (decisions: Decision[]): boolean => {
     try {
+      const correlation = createRunCorrelation();
       thread.submit(
         {},
         {
+          config: correlation.config,
+          metadata: correlation.metadata,
           command: {
             resume: {
               decisions,
@@ -188,9 +192,12 @@ export default function useInterruptedActions({
     initialHumanInterruptEditValue.current = {};
 
     try {
+      const correlation = createRunCorrelation();
       thread.submit(
         {},
         {
+          config: correlation.config,
+          metadata: correlation.metadata,
           command: {
             goto: END,
           },

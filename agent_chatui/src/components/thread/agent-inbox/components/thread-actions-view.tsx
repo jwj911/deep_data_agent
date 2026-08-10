@@ -10,6 +10,7 @@ import { useQueryState } from "nuqs";
 import { constructOpenInStudioURL, buildDecisionFromState } from "../utils";
 import { Decision, HITLRequest, DecisionType, ActionRequest } from "../types";
 import { useStreamContext } from "@/providers/stream-context";
+import { createRunCorrelation } from "@/lib/request-id";
 
 interface ThreadActionsViewProps {
   interrupt: Interrupt<HITLRequest>;
@@ -174,10 +175,13 @@ export function ThreadActionsView({
       const allDecisions: Decision[] = actionRequests.map(() => ({
         type: "approve",
       }));
+      const correlation = createRunCorrelation();
 
       stream.submit(
         {},
         {
+          config: correlation.config,
+          metadata: correlation.metadata,
           command: {
             resume: { decisions: allDecisions },
           },
@@ -221,10 +225,13 @@ export function ThreadActionsView({
         }
         return decision;
       });
+      const correlation = createRunCorrelation();
 
       stream.submit(
         {},
         {
+          config: correlation.config,
+          metadata: correlation.metadata,
           command: {
             resume: { decisions: allDecisions },
           },

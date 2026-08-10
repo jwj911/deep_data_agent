@@ -64,6 +64,14 @@ PLACEHOLDERS = {
     "TAVILY_API_KEY": "your_tavily_api_key_here",
     "JWT_SECRET_KEY": "your_jwt_secret_key_here",
 }
+OBSERVABILITY_DEFAULTS = {
+    "SERVICE_NAME": "deep-data-agent",
+    "LOG_FILE_PATH": "deep_data_agent.log",
+    "LOG_MAX_BYTES": "10485760",
+    "LOG_BACKUP_COUNT": "3",
+    "DOCKER_LOG_MAX_SIZE": "10m",
+    "DOCKER_LOG_MAX_FILES": "3",
+}
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
@@ -206,6 +214,18 @@ def _check_env_example(
                 Violation("ENV_EXAMPLE_PLACEHOLDER", ENV_EXAMPLE_PATH, line)
             )
 
+    for name, expected in OBSERVABILITY_DEFAULTS.items():
+        values = assignments.get(name, [])
+        if len(values) != 1 or values[0][0] != expected:
+            line = values[0][1] if values else 1
+            violations.append(
+                Violation(
+                    "OBSERVABILITY_ENV_DEFAULT",
+                    ENV_EXAMPLE_PATH,
+                    line,
+                )
+            )
+
 
 def _compose_default_host(value: str) -> tuple[str | None, str | None]:
     value = value.strip()
@@ -251,6 +271,29 @@ def _check_compose_urls(
     for name in expected.keys() - found:
         violations.append(
             Violation(f"COMPOSE_{name}_DEFAULT", COMPOSE_PATH, 1)
+        )
+
+
+def _check_compose_logging(
+    text: str,
+    violations: list[Violation],
+) -> None:
+    required_lines = {
+        "max-size: ${DOCKER_LOG_MAX_SIZE:-10m}",
+        "max-file: ${DOCKER_LOG_MAX_FILES:-3}",
+    }
+    stripped_lines = {
+        line.strip(): line_number
+        for line_number, line in enumerate(text.splitlines(), start=1)
+    }
+    for required_line in required_lines:
+        if required_line not in stripped_lines:
+            violations.append(
+                Violation("COMPOSE_LOG_RETENTION", COMPOSE_PATH, 1)
+            )
+    if text.count("logging: *bounded-logging") < 4:
+        violations.append(
+            Violation("COMPOSE_LOG_RETENTION", COMPOSE_PATH, 1)
         )
 
 
@@ -331,6 +374,7 @@ def check_repository(
     compose = texts.get(COMPOSE_PATH)
     if compose is not None:
         _check_compose_urls(compose, violations)
+        _check_compose_logging(compose, violations)
 
     legacy_pattern = re.compile(re.escape(LEGACY_LOGIN_VARIABLE))
     for path, text in texts.items():

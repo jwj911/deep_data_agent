@@ -40,6 +40,7 @@ import { ContentBlocksPreview } from "./ContentBlocksPreview";
 import { ArtifactContent, ArtifactTitle } from "./artifact";
 import { useArtifactContext, useArtifactOpen } from "./use-artifact";
 import { SessionControls } from "@/components/auth-session";
+import { createRunCorrelation } from "@/lib/request-id";
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -208,10 +209,13 @@ export function Thread() {
 
     const context =
       Object.keys(artifactContext).length > 0 ? artifactContext : undefined;
+    const correlation = createRunCorrelation();
 
     stream.submit(
       { messages: [...toolMessages, newHumanMessage], context },
       {
+        config: correlation.config,
+        metadata: correlation.metadata,
         streamMode: ["values"],
         streamSubgraphs: true,
         streamResumable: true,
@@ -237,7 +241,10 @@ export function Thread() {
     // Do this so the loading state is correct
     prevMessageLength.current = prevMessageLength.current - 1;
     setFirstTokenReceived(false);
+    const correlation = createRunCorrelation();
     stream.submit(undefined, {
+      config: correlation.config,
+      metadata: correlation.metadata,
       checkpoint: parentCheckpoint,
       streamMode: ["values"],
       streamSubgraphs: true,

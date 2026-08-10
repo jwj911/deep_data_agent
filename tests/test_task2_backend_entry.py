@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import json
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import Mock
@@ -92,7 +93,15 @@ def test_placeholder_model_key_is_reported_as_missing(monkeypatch) -> None:
         runtime_config.require_model_api_key()
 
 
-def test_redis_connection_failure_degrades_to_cache_miss(caplog) -> None:
+def test_redis_connection_failure_degrades_to_cache_miss(
+    caplog,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        logging.getLogger("deep_data_agent"),
+        "propagate",
+        True,
+    )
     client = Mock()
     client.ping.side_effect = RedisConnectionError("connection refused")
 
@@ -112,6 +121,11 @@ def test_code_execution_is_disabled_by_default(monkeypatch) -> None:
 
 def test_code_execution_requires_explicit_enable(monkeypatch, caplog) -> None:
     monkeypatch.setattr(config, "ENABLE_CODE_EXECUTION", True)
+    monkeypatch.setattr(
+        logging.getLogger("deep_data_agent"),
+        "propagate",
+        True,
+    )
 
     tool_manager = ToolManager()
 
