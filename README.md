@@ -148,6 +148,43 @@ API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览
 命令输出粘贴到终端记录、文档、Issue 或提交中。密钥、Token 和 `.env` 绝不进入
 版本控制。
 
+## 请求限流
+
+FastAPI 层在请求 ID 绑定之后、业务处理之前，对认证端点、高成本 `/api/query`、
+其他会话端点和全局默认类别按身份维度做 Redis 固定窗口限流。四类配额相互独立、
+计数隔离：某一类超限不影响其他类别。
+
+身份维度按稳定标识计数：认证请求按 JWT `sub`（仅无副作用地校验签名与有效期，
+不查库），匿名请求按客户端来源。不同用户、不同来源的计数相互隔离，一个身份
+超限不影响另一个身份。
+
+超限返回稳定 `429`，错误体为 `{code: "rate_limited", message, request_id}`，并
+携带 `Retry-After` 秒数；窗口重置后同一身份恢复放行。健康检查 `/api/health`
+永不被限流，也不计入任何配额。
+
+`TRUSTED_PROXY_COUNT` 默认 `0`，即不信任 `X-Forwarded-For`，来源以直接连接地址
+为准，伪造转发头不会改变计数键。Redis 不可用或计数出错时限流 **fail-open**，
+放行请求并记录 `rate_limit.degraded` 降级事件，不因限流组件故障阻断业务。限流
+事件只含维度类别、路由模板、配额键摘要、窗口与计数，不记录原始 Token、明文
+来源、提示词或业务数据。设 `RATE_LIMIT_ENABLED=false` 可整体关闭限流，关闭时
+不产生 `429` 也不调用 Redis。
+
+当前限流是单实例本地 Redis 固定窗口，不是分布式令牌桶，也不含自动封禁或黑名单。
+相关环境变量与默认值如下：
+
+- `RATE_LIMIT_ENABLED`：限流总开关，默认 `true`。
+- `TRUSTED_PROXY_COUNT`：信任的反向代理跳数，默认 `0`（不信任 `X-Forwarded-For`）。
+- `RATE_LIMIT_AUTH_MAX_REQUESTS`、`RATE_LIMIT_AUTH_WINDOW_SECONDS`：认证端点配额，
+  默认每 `60` 秒 `10` 次。
+- `RATE_LIMIT_QUERY_MAX_REQUESTS`、`RATE_LIMIT_QUERY_WINDOW_SECONDS`：`/api/query`
+  配额，默认每 `60` 秒 `20` 次。
+- `RATE_LIMIT_SESSION_MAX_REQUESTS`、`RATE_LIMIT_SESSION_WINDOW_SECONDS`：会话端点
+  配额，默认每 `60` 秒 `60` 次。
+- `RATE_LIMIT_DEFAULT_MAX_REQUESTS`、`RATE_LIMIT_DEFAULT_WINDOW_SECONDS`：全局默认
+  配额，默认每 `60` 秒 `120` 次。
+
+各配额上限与窗口秒数均须为正整数，非法值在启动时抛出稳定 `ConfigurationError`。
+
 ## 可观测性与诊断
 
 FastAPI 接受严格的 32 位小写十六进制 `X-Request-ID`。合法值会在响应头中原样

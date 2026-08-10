@@ -116,6 +116,9 @@ deep_data_agent/
 | `JWT_SECRET_KEY` | 第一方 JWT 签名 | 至少 32 个字符且不能是占位值 |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | 正整数 |
 | `CORS_ALLOWED_ORIGINS` | FastAPI 来源白名单 | 逗号分隔绝对来源，禁止通配符 |
+| `RATE_LIMIT_ENABLED` | 请求限流总开关 | 默认 `true`，设 `false` 关闭且不调用 Redis |
+| `TRUSTED_PROXY_COUNT` | 可信反向代理跳数 | 非负整数，默认 `0` 不信任 `X-Forwarded-For` |
+| `RATE_LIMIT_*_MAX_REQUESTS`、`RATE_LIMIT_*_WINDOW_SECONDS` | 认证、查询、会话、默认四类配额与窗口 | 正整数、有界；四类计数隔离 |
 | `ENABLE_CODE_EXECUTION` | 任意 Python 执行开关 | 默认 `false`，仅受控环境人工启用 |
 | `SERVICE_NAME`、`LOG_LEVEL` | 结构化事件来源与级别 | 服务名保持低基数 |
 | `LOG_FILE_PATH`、`LOG_MAX_BYTES`、`LOG_BACKUP_COUNT` | 本地日志轮转 | 大小与备份数必须为正整数 |
@@ -201,11 +204,14 @@ Moonshot 或 Tavily。
 - 第一方 Token 使用 `sessionStorage`，不写 URL、日志或错误提示。
 - 代码执行默认关闭；配置和日志具有占位值识别与敏感值脱敏边界。
 - 日志使用固定结构化字段和有界轮转；诊断导出只读、人工触发且不自动外发。
+- 按身份维度的请求限流：FastAPI 层用 Redis 固定窗口对认证、查询、会话与默认四类
+  计数，Redis 故障时 fail-open 放行并记录脱敏降级事件，配额键仅用不可逆摘要。
 
 ### 仍有限制
 
 - 本地 LangGraph 使用 noop 认证，第一方 JWT 只保护 FastAPI 认证与会话接口。
-- 没有 Refresh Token、密码找回、邮箱验证、OAuth、RBAC、管理员审计或请求限流。
+- 已加入按身份维度的请求限流，但仍无分布式令牌桶、自动封禁、Refresh Token、
+  密码找回、邮箱验证、OAuth、RBAC 或管理员审计。
 - 任意 Python 执行显式开启后仍无沙箱；本地文档分析只适用于受控文件。
 - 数据库没有版本化迁移工具，仍由 `Base.metadata.create_all()` 初始化。
 - 旧的已失效服务凭据仍在 Git 历史中；历史清理由人工在干净工作区另行处理。
@@ -218,6 +224,8 @@ Moonshot 或 Tavily。
 - 本机 Node.js 25.2.1 超出支持的 22.x 范围，最终前端发布证据以 Node.js 22 的
   GitHub Hosted CI 和 Docker 构建为准。
 - LangGraph 本地服务仍为 noop 认证，日志与诊断报告不能作为授权或审计替代品。
+- 请求限流为单实例本地 Redis 固定窗口，非全局分布式速率控制；无令牌桶、自动
+  封禁或跨实例配额共享，Redis 故障时 fail-open。
 
 ## 9. 相关文档
 

@@ -28,6 +28,16 @@ LOG_MAX_BYTES=10485760
 LOG_BACKUP_COUNT=3
 DOCKER_LOG_MAX_SIZE=10m
 DOCKER_LOG_MAX_FILES=3
+RATE_LIMIT_ENABLED=true
+TRUSTED_PROXY_COUNT=0
+RATE_LIMIT_AUTH_MAX_REQUESTS=10
+RATE_LIMIT_AUTH_WINDOW_SECONDS=60
+RATE_LIMIT_QUERY_MAX_REQUESTS=20
+RATE_LIMIT_QUERY_WINDOW_SECONDS=60
+RATE_LIMIT_SESSION_MAX_REQUESTS=60
+RATE_LIMIT_SESSION_WINDOW_SECONDS=60
+RATE_LIMIT_DEFAULT_MAX_REQUESTS=120
+RATE_LIMIT_DEFAULT_WINDOW_SECONDS=60
 """
 VALID_COMPOSE = """\
 x-bounded-logging: &bounded-logging
@@ -203,6 +213,55 @@ def test_observability_env_defaults_must_be_exact(tmp_path, variable):
     ]
     assert len(matching) == 1
     assert matching[0].path == ENV_EXAMPLE_PATH
+
+
+@pytest.mark.parametrize(
+    "variable",
+    sorted(contracts.RATE_LIMIT_DEFAULTS),
+)
+def test_rate_limit_env_defaults_must_be_exact(tmp_path, variable):
+    scan_files = _create_minimal_repository(tmp_path)
+
+    baseline = _check(tmp_path, scan_files=scan_files)
+    assert not [
+        (item.rule, item.path)
+        for item in baseline
+        if item.rule == "RATE_LIMIT_ENV_DEFAULT"
+    ]
+
+    expected = contracts.RATE_LIMIT_DEFAULTS[variable]
+    invalid_env = VALID_ENV_EXAMPLE.replace(
+        f"{variable}={expected}",
+        f"{variable}=999",
+    )
+    _write(tmp_path, ENV_EXAMPLE_PATH, invalid_env)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    matching = [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "RATE_LIMIT_ENV_DEFAULT"
+    ]
+    assert matching == [("RATE_LIMIT_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
+
+
+def test_rate_limit_env_default_missing_key_is_reported(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid_env = VALID_ENV_EXAMPLE.replace(
+        "RATE_LIMIT_AUTH_MAX_REQUESTS=10\n",
+        "",
+    )
+    _write(tmp_path, ENV_EXAMPLE_PATH, invalid_env)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    matching = [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "RATE_LIMIT_ENV_DEFAULT"
+    ]
+    assert matching == [("RATE_LIMIT_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
 
 
 def test_compose_log_retention_contract_is_required(tmp_path):

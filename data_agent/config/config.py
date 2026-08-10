@@ -151,6 +151,39 @@ class Config:
             "LOG_BACKUP_COUNT", 3
         )
 
+        self.RATE_LIMIT_ENABLED = _env_bool(
+            "RATE_LIMIT_ENABLED", default=True
+        )
+        self.TRUSTED_PROXY_COUNT = _env_int("TRUSTED_PROXY_COUNT", 0)
+        if self.TRUSTED_PROXY_COUNT < 0:
+            raise ConfigurationError(
+                "TRUSTED_PROXY_COUNT must be >= 0"
+            )
+        self.RATE_LIMIT_AUTH_MAX_REQUESTS = _env_positive_int(
+            "RATE_LIMIT_AUTH_MAX_REQUESTS", 10
+        )
+        self.RATE_LIMIT_AUTH_WINDOW_SECONDS = _env_positive_int(
+            "RATE_LIMIT_AUTH_WINDOW_SECONDS", 60
+        )
+        self.RATE_LIMIT_QUERY_MAX_REQUESTS = _env_positive_int(
+            "RATE_LIMIT_QUERY_MAX_REQUESTS", 20
+        )
+        self.RATE_LIMIT_QUERY_WINDOW_SECONDS = _env_positive_int(
+            "RATE_LIMIT_QUERY_WINDOW_SECONDS", 60
+        )
+        self.RATE_LIMIT_SESSION_MAX_REQUESTS = _env_positive_int(
+            "RATE_LIMIT_SESSION_MAX_REQUESTS", 60
+        )
+        self.RATE_LIMIT_SESSION_WINDOW_SECONDS = _env_positive_int(
+            "RATE_LIMIT_SESSION_WINDOW_SECONDS", 60
+        )
+        self.RATE_LIMIT_DEFAULT_MAX_REQUESTS = _env_positive_int(
+            "RATE_LIMIT_DEFAULT_MAX_REQUESTS", 120
+        )
+        self.RATE_LIMIT_DEFAULT_WINDOW_SECONDS = _env_positive_int(
+            "RATE_LIMIT_DEFAULT_WINDOW_SECONDS", 60
+        )
+
     def require_model_api_key(self) -> str:
         """Return the model API key or raise a stable configuration error."""
         missing = [

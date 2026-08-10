@@ -25,6 +25,20 @@ _ENUM_FIELDS = {
         "skipped",
         "unavailable",
     },
+    "scope": {
+        "auth",
+        "query",
+        "session",
+        "default",
+    },
+    "identity_kind": {
+        "user",
+        "anonymous",
+    },
+    "decision": {
+        "allowed",
+        "limited",
+    },
 }
 _TOKEN_FIELDS = {
     "operation",
@@ -37,6 +51,10 @@ _INTEGER_FIELDS = {
     "event_count",
     "invalid_line_count",
     "folded_count",
+    "limit",
+    "remaining",
+    "retry_after",
+    "window_seconds",
 }
 _NUMBER_FIELDS = {"duration_ms"}
 _BOOLEAN_FIELDS = {"available"}

@@ -24,6 +24,18 @@
 - 本地文件与 Docker 日志增加大小和备份数量上限，避免日志无界占用磁盘。
 - 新增人工诊断导出，可按请求 ID 生成倒序时间线，折叠健康检查并汇总 HTTP
   错误率、延迟、缓存降级和模型失败信号。
+- FastAPI 层新增按身份维度的 Redis 固定窗口限流，对认证端点、`/api/query`、
+  会话端点和全局默认四类分别计数：认证请求按 JWT `sub`、匿名按来源，四类配额
+  与不同身份计数相互隔离；`/api/health` 永不受限，`RATE_LIMIT_ENABLED=false`
+  可整体关闭。
+- 超限返回稳定 `429`，错误体为 `{code: "rate_limited", message, request_id}`
+  并附 `Retry-After`；既有 401/404/503 语义不变。
+- Redis 不可用或出错时限流 fail-open 放行，并发出脱敏 `rate_limit.degraded`
+  事件；限流事件只含维度类别、路由模板、配额键摘要、窗口与计数。
+- `TRUSTED_PROXY_COUNT` 默认 `0`，不信任 `X-Forwarded-For`，伪造转发头不改变
+  匿名计数键。
+- 新增限流环境变量契约与发布契约检查（`RATE_LIMIT_ENV_DEFAULT`），并补充覆盖
+  配额默认值的确定性契约测试。
 
 ### 当前验证证据
 
@@ -71,6 +83,8 @@
 - 当前诊断能力使用本地轮转日志和 Docker 日志，不包含 OpenTelemetry、
   Prometheus、Grafana、长期存储或自动告警通知；这些能力需要单独评审访问控制、
   成本和保留周期。
+- 请求限流为单实例本地 Redis 固定窗口，非分布式令牌桶，也无自动封禁或黑名单；
+  Redis 故障时 fail-open 放行，可能在缓存不可用期间放宽配额，需依赖降级事件监控。
 
 ## [0.2.0] - 2026-08-10
 

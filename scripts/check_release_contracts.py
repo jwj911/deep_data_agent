@@ -72,6 +72,18 @@ OBSERVABILITY_DEFAULTS = {
     "DOCKER_LOG_MAX_SIZE": "10m",
     "DOCKER_LOG_MAX_FILES": "3",
 }
+RATE_LIMIT_DEFAULTS = {
+    "RATE_LIMIT_ENABLED": "true",
+    "TRUSTED_PROXY_COUNT": "0",
+    "RATE_LIMIT_AUTH_MAX_REQUESTS": "10",
+    "RATE_LIMIT_AUTH_WINDOW_SECONDS": "60",
+    "RATE_LIMIT_QUERY_MAX_REQUESTS": "20",
+    "RATE_LIMIT_QUERY_WINDOW_SECONDS": "60",
+    "RATE_LIMIT_SESSION_MAX_REQUESTS": "60",
+    "RATE_LIMIT_SESSION_WINDOW_SECONDS": "60",
+    "RATE_LIMIT_DEFAULT_MAX_REQUESTS": "120",
+    "RATE_LIMIT_DEFAULT_WINDOW_SECONDS": "60",
+}
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
@@ -221,6 +233,18 @@ def _check_env_example(
             violations.append(
                 Violation(
                     "OBSERVABILITY_ENV_DEFAULT",
+                    ENV_EXAMPLE_PATH,
+                    line,
+                )
+            )
+
+    for name, expected in RATE_LIMIT_DEFAULTS.items():
+        values = assignments.get(name, [])
+        if len(values) != 1 or values[0][0] != expected:
+            line = values[0][1] if values else 1
+            violations.append(
+                Violation(
+                    "RATE_LIMIT_ENV_DEFAULT",
                     ENV_EXAMPLE_PATH,
                     line,
                 )

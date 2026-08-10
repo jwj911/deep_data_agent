@@ -10,6 +10,7 @@ from data_agent.config.logger import agent_logger
 from data_agent.observability.context import get_or_create_request_id
 from data_agent.observability.middleware import (REQUEST_ID_HEADER,
                                                  ObservabilityMiddleware)
+from data_agent.observability.rate_limit_middleware import RateLimitMiddleware
 from data_agent.routes import auth, session
 from data_agent.services.agent_service import (AgentInvocationError,
                                                global_agent_service)
@@ -37,6 +38,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
     expose_headers=[REQUEST_ID_HEADER],
 )
+# 中间件“后 add = 更外层”。此处按 CORS、RateLimit、Observability 顺序添加，
+# 使执行顺序为 Observability(最外) -> RateLimit -> CORS(最内，最靠近路由)。
+# Observability 最外层先绑定请求 ID，限流的 429 分支才能取到 request_id。
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ObservabilityMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
