@@ -1,389 +1,218 @@
-# Deep Data Agent — 项目指南
+# Deep Data Agent 项目指南
 
-> 本文件面向 AI 编码助手。阅读前请默认对项目一无所知；以下内容全部基于仓库实际文件，不做假设。
+> 本文件面向 AI 编码助手。所有结论以当前工作树、正式规格和可重复命令为准；
+> 不把 Roadmap 候选或尚未取得的发布证据描述为已实现能力。
 
-## 1. 项目概述
+## 1. 工作区与协作约束
 
-Deep Data Agent（中文名：人工智能数据探索）是一个前后端分离的 AI 数据探索/智能问答系统。
-
-- **后端** (`data_agent/`)：基于 Python + FastAPI + LangChain/DeepAgents 构建，对外提供 REST API，并可通过 LangGraph 协议暴露图服务。
-- **前端** (`agent_chatui/`)：基于 Next.js + React + Tailwind CSS 构建的聊天界面，源自 LangChain 官方 `agent-chat-ui` 模板。
-- **基础设施** (`docker-config/`)：使用 Docker Compose 编排 MySQL、Redis、后端与前端服务。
-
-当前项目处于早期阶段：后端已实现搜索、文档分析、代码执行三种工具以及用户/会话持久化；前端聊天界面集成 LangGraph SDK，但存在若干缺失文件与未对齐的接口。
-
-## 2. 仓库位置
-
-本项目的实际根目录为：
+项目根目录是：
 
 ```text
 D:\Code\deep_data_agent\deep_data_agent
 ```
 
-外层 `D:\Code\deep_data_agent` 仅包含上述一个子目录，无实际代码。所有命令请在 `deep_data_agent/` 目录内执行。
+执行命令、解析相对路径和生成差异时均以该目录为根。开始任务前必须读取
+`git status --short`、本文件、相关规格和目标文件。
 
-## 3. 技术栈
+- 工作区可能包含用户或其他任务的未提交改动。不得回滚、覆盖、格式化或顺带重构
+  不属于当前任务的内容；并行改动影响当前任务时，重新读取后在最新内容上合并。
+- 只编辑用户授权的文件。除非用户明确要求，否则不修改规格 tasks/checklist，
+  不创建提交、不推送、不重写历史。
+- 手工修改使用 `apply_patch`。运行格式化、测试或构建前先评估生成物，结束时清理
+  任务产生且不应保留的缓存和构建目录。
+- 不读取、输出或提交本地 `.env` 中的真实值。API Key、JWT、密码、Token、业务
+  数据和可识别用户信息不得进入代码、文档、测试固件、日志或 CI 产物。
+- 高风险工具、生产数据验证、凭据历史重写和模型批量调用必须由人工明确触发，
+  并使用脱敏输入；不得由助手自行扩大执行范围。
 
-### 3.1 后端
+## 2. 项目现状
 
-| 技术 | 用途 |
-|------|------|
-| Python 3.12 | 运行时 |
-| FastAPI | Web 框架 |
-| Uvicorn | ASGI 服务器 |
-| SQLAlchemy | ORM |
-| MySQL | 持久化数据库 |
-| Redis | 缓存 |
-| LangChain / `langchain_openai` | LLM 调用抽象 |
-| `deepagents` | Agent 创建与编排（`create_deep_agent`） |
-| Moonshot Kimi (`kimi-k2-turbo-preview`) | 默认大模型 |
-| Tavily | 互联网搜索 |
-| python-jose / passlib | JWT 认证与密码哈希 |
-| python-dotenv | 环境变量加载 |
-| pandas / tabulate | 数据处理与展示 |
+Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可运行闭环和第一方
+多用户认证：
 
-### 3.2 前端
+- `data_agent/`：Python 3.12、FastAPI、LangGraph/DeepAgents、SQLAlchemy。
+- `agent_chatui/`：Next.js 15、React 19、TypeScript、Tailwind CSS 静态前端。
+- MySQL：持久化用户、会话和消息。
+- Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
+- Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-| 技术 | 用途 |
-|------|------|
-| Next.js 15.2.3 | React 框架 |
-| React 19.0.0 | UI 库 |
-| TypeScript ~5.7.2 | 类型系统 |
-| Tailwind CSS 4.0.13 | 原子化 CSS |
-| shadcn/ui (New York) | 组件库 |
-| `@langchain/langgraph-sdk` | 与 LangGraph 后端通信 |
-| `@antv/g2` / `@antv/ava` | 图表与自动可视化 |
-| `react-markdown` / `react-syntax-highlighter` | Markdown 与代码高亮 |
-| pnpm 10.5.1 | 包管理器 |
+当前正式迭代是 `.trae/specs/enforce-release-readiness/`。它聚焦前后端质量门禁、
+CI、配置漂移防护、发布文档和五服务复验，不包含新的业务功能。
 
-### 3.3 部署/运维
-
-| 技术 | 用途 |
-|------|------|
-| Docker / Docker Compose | 容器化部署 |
-| PM2 | 本地/服务器进程管理（`start.sh`） |
-| Nginx | 静态前端部署（`agent_chatui/start.sh`） |
-
-## 4. 项目结构
+## 3. 关键结构
 
 ```text
 deep_data_agent/
-├── .env                      # 环境变量（本地，已忽略，需手动创建）
-├── .env.example              # 环境变量示例
-├── .gitignore
-├── README.md                 # 仅一行中文标题
-├── langgraph.json            # LangGraph CLI 配置
-├── requirements.txt          # Python 依赖
-├── setup.py                  # 极简 setuptools 配置
-├── start.sh                  # PM2 启动 LangGraph 开发服务器
-├── agent_chatui/             # 前端（Next.js）
+├── .env.example
+├── AGENTS.md
+├── CHANGELOG.md
+├── README.md
+├── langgraph.json
+├── requirements.txt
+├── tests/
+├── .trae/
+│   ├── documents/
+│   │   ├── project_analysis.md
+│   │   └── roadmap.md
+│   └── specs/
+├── agent_chatui/
 │   ├── package.json
 │   ├── next.config.mjs
-│   ├── tsconfig.json
-│   ├── eslint.config.js
-│   ├── prettier.config.js
-│   ├── tailwind.config.js
-│   ├── components.json       # shadcn/ui 配置
-│   ├── Dockerfile
-│   ├── start.sh              # Nginx 静态部署脚本
-│   └── src/                  # 源码
-│       ├── app/              # Next.js App Router
-│       ├── components/       # 组件（thread、ui、icons）
-│       ├── config/index.ts   # 全局常量
-│       ├── hooks/            # 自定义 Hooks
-│       └── providers/        # React Context / LangGraph Client
-├── data_agent/               # 后端（Python）
-│   ├── agent_server.py       # FastAPI 入口
-│   ├── Dockerfile
-│   ├── config/               # 配置、数据库、日志
-│   ├── models/               # SQLAlchemy 模型
-│   ├── routes/               # FastAPI 路由
-│   ├── services/             # 业务逻辑服务
-│   └── tools/                # Agent 工具实现
+│   └── src/
+│       ├── app/
+│       ├── components/
+│       ├── config/
+│       ├── lib/
+│       └── providers/
+├── data_agent/
+│   ├── agent_graph.py
+│   ├── agent_server.py
+│   ├── config/
+│   ├── models/
+│   ├── routes/
+│   ├── services/
+│   └── tools/
 └── docker-config/
-    └── docker-compose.yml    # 全栈 Docker Compose 编排
+    └── docker-compose.yml
 ```
 
-## 5. 关键配置文件
+### 3.1 服务入口
+
+- `langgraph.json` 导出 `data_agent.agent_graph:agent`。该入口不依赖 MySQL 建表。
+- `data_agent.agent_server:app` 是 FastAPI ASGI 入口，数据库初始化只发生在应用
+  生命周期。
+- `/api/health` 不触发模型调用；`/api/query` 将配置错误和上游错误映射为稳定的
+  非 2xx 响应。
+- `data_agent/routes/auth.py` 提供注册、登录和 `/me`；
+  `data_agent/routes/session.py` 提供受保护的会话与消息接口。
+
+### 3.2 前端连接
+
+- `NEXT_PUBLIC_API_URL` 和 `NEXT_PUBLIC_ASSISTANT_ID` 用于 LangGraph。
+- `NEXT_PUBLIC_REST_API_URL` 用于 FastAPI 第一方认证和会话接口。
+- 两类公开地址在静态构建时写入，必须可由浏览器访问，不能使用 Docker 内部服务名。
+- 第一方 JWT 存储在 `sessionStorage`，只附加到 FastAPI 请求。
+- 可选 LangGraph API Key 使用独立 `localStorage` 键；非 FastAPI 的 401/403 不得
+  清除第一方登录态。
+
+## 4. 配置契约
+
+复制 `.env.example` 为本地 `.env`，只在本地填入真实值。
+
+| 变量 | 作用 | 约束 |
+| --- | --- | --- |
+| `MOONSHOT_API_KEY` | 模型调用 | 示例占位值无效；不得提交 |
+| `TAVILY_API_KEY` | 互联网搜索 | 仅搜索工具需要；不得提交 |
+| `MODEL_NAME`、`MODEL_BASE_URL`、`MODEL_TEMPERATURE` | 模型配置 | 与提供方契约一致 |
+| `DATABASE_URL` | 宿主机数据库 | 默认使用 PyMySQL URL |
+| `REDIS_URL` | 宿主机缓存 | 不可用时允许降级 |
+| `JWT_SECRET_KEY` | 第一方 JWT 签名 | 至少 32 个字符且不能是占位值 |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期 | 正整数 |
+| `CORS_ALLOWED_ORIGINS` | FastAPI 来源白名单 | 逗号分隔绝对来源，禁止通配符 |
+| `ENABLE_CODE_EXECUTION` | 任意 Python 执行开关 | 默认 `false`，仅受控环境人工启用 |
+| `COMPOSE_DATABASE_URL`、`COMPOSE_REDIS_URL` | 容器内部连接 | 使用 `mysql`、`redis` 服务名 |
+| `MYSQL_PORT`、`REDIS_PORT` 等 | 宿主机端口 | 端口冲突时只重映射宿主侧 |
+
+Compose 的数据库凭据、数据库名和连接 URL 必须同步修改。前端公开 URL 与容器
+内部地址是两套边界，不得互换。
+
+## 5. 常用命令
 
 ### 5.1 后端
 
-- **`requirements.txt`**：Python 依赖清单。注意 `pandas` 重复出现，`setuptools==75.8.0` 被固定，`langgraph-cli[inmem]` 用于本地 LangGraph 开发。
-- **`setup.py`**：极简包配置，仅声明 `name='data_agent'`、`version='0.1'`。
-- **`langgraph.json`**：LangGraph CLI 使用，指定 graph 名 `agent` 对应 `./data_agent/agent_server.py:agent`。注意当前 `agent_server.py` 导出的是 `app`（FastAPI 实例），而非 `agent`。
-- **`.env.example`**：
-  - `MOONSHOT_API_KEY`
-  - `TAVILY_API_KEY`
-  - `DATABASE_URL`（默认 MySQL）
-  - `HOST`、`PORT`、`LOG_LEVEL`
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pytest
+python -m isort --check-only data_agent tests
+python -m uvicorn data_agent.agent_server:app --host 0.0.0.0 --port 8000
+langgraph dev --host 0.0.0.0 --port 2024 --no-browser --allow-blocking
+```
 
 ### 5.2 前端
 
-- **`package.json`**：脚本、依赖、packageManager 固定为 `pnpm@10.5.1`。
-- **`next.config.mjs`**：
-  - `output: 'export'`：静态导出
-  - `basePath: '/data_copilot'`
-  - `images.unoptimized: true`
-  - `eslint.ignoreDuringBuilds: true`
-  - `typescript.ignoreBuildErrors: true`
-- **`tsconfig.json`**：路径别名 `@/*` -> `./src/*`。
-- **`eslint.config.js`**：基于 `typescript-eslint`、`@eslint/js`、React Hooks/Refresh 规则。
-- **`prettier.config.js`**：单属性换行、Tailwind 排序插件。
-- **`components.json`**：shadcn/ui 配置，`rsc: false`。
-
-### 5.3 部署
-
-- **`docker-config/docker-compose.yml`**：编排 `mysql`、`redis`、`backend`、`frontend`。
-- **`data_agent/Dockerfile`**：Python 3.12 slim，安装依赖后执行 `python agent_server.py`。
-- **`agent_chatui/Dockerfile`**：Node 18 Alpine，pnpm 安装、build、start。
-
-## 6. 构建与运行命令
-
-### 6.1 本地开发
-
-#### 后端
-
-```bash
-# 1. 创建并激活虚拟环境（推荐）
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # Linux/macOS
-
-# 2. 安装依赖
-pip install -r requirements.txt
-
-# 3. 配置环境变量
-copy .env.example .env        # Windows
-# cp .env.example .env        # Linux/macOS，然后填写密钥
-
-# 4. 启动 MySQL / Redis（可选，也可使用 Docker Compose）
-cd docker-config
-docker compose up -d mysql redis
-
-# 5. 启动后端开发服务器
-python data_agent/agent_server.py
-```
-
-默认监听 `0.0.0.0:8000`。
-
-#### 使用 LangGraph CLI 启动（与 `start.sh` 一致）
-
-```bash
-# 需要安装 langgraph-cli[inmem]
-langgraph dev --allow-blocking --no-browser
-```
-
-或按项目脚本使用 PM2：
-
-```bash
-pm2 delete langgraph-app
-pm2 start "langgraph dev --allow-blocking --no-browser" --name "langgraph-app"
-```
-
-#### 前端
-
-```bash
-cd agent_chatui
-
-# 使用 pnpm（项目固定）
-pnpm install
-pnpm dev
-```
-
-开发服务器默认在 `http://localhost:3000`。
-
-### 6.2 生产构建
-
-#### 前端静态导出
-
-```bash
-cd agent_chatui
-pnpm install
-pnpm build
-```
-
-产物在 `agent_chatui/out/` 目录，随后可用 Nginx 部署（参考 `agent_chatui/start.sh`）。
-
-#### 全栈 Docker Compose
-
-```bash
-cd docker-config
-# 确保外层 .env 已配置 MOONSHOT_API_KEY / TAVILY_API_KEY
-docker compose up --build -d
-```
-
-- 前端：`http://localhost:3000`
-- 后端：`http://localhost:8000`
-- MySQL：`localhost:3306`
-- Redis：`localhost:6379`
-
-## 7. 代码组织
-
-### 7.1 后端模块
-
-| 目录 | 职责 |
-|------|------|
-| `data_agent/config/` | 配置 (`config.py`)、SQLAlchemy 引擎与会话 (`database.py`)、日志 (`logger.py`) |
-| `data_agent/models/` | SQLAlchemy 模型：`User`、`Session`、`Message`，以及实验性的 `KimiChat` |
-| `data_agent/routes/` | FastAPI 路由：`auth.py`（注册/登录）、`session.py`（会话/消息 CRUD） |
-| `data_agent/services/` | 业务逻辑：`AgentService`、`AuthService`（函数集合）、`SessionService`、`CacheService` |
-| `data_agent/tools/` | Agent 可调用的工具：`internet_search`、`analyze_document`、`execute_python_code` |
-
-### 7.2 后端核心流程
-
-1. `agent_server.py` 初始化时调用 `init_db()`，由 SQLAlchemy 自动建表。
-2. 全局 `AgentService` 启动时通过 `deepagents.create_deep_agent` 创建 Agent，绑定工具与 Moonshot Kimi 模型。
-3. 用户调用 `POST /api/query` 时，`AgentService.invoke()` 先检查 Redis 缓存，再调用 Agent，最后缓存结果 24 小时。
-4. 认证与会话路由提供独立的 REST API，但目前会话路由使用硬编码 `user_id = 1`。
-
-### 7.3 前端模块
-
-- `app/page.tsx`：主聊天页，集成 `ThreadProvider`、`StreamProvider`、`ArtifactProvider`。
-- `app/login/page.tsx`：授权码登录回调页。
-- `providers/Stream.tsx`：封装 `useStream`，管理 LangGraph 连接与初始化表单。
-- `providers/Thread.tsx`：线程列表管理。
-- `providers/client.ts`：创建 LangGraph SDK Client。
-- `components/thread/`：聊天线程、消息渲染、Artifact、Agent Inbox、历史记录。
-- `components/ui/`：shadcn/ui 基础组件与 AntV 图表封装。
-
-## 8. 开发规范
-
-### 8.1 代码风格
-
-- **后端**：Python，使用 4 空格缩进，函数/类均使用双引号或单引号均可（当前混用）。
-- **前端**：TypeScript + React，函数组件优先，Tailwind 类名通过 `cn()` 工具合并。
-- **格式化**：前端使用 Prettier（`pnpm format` / `pnpm format:check`）；后端无统一格式化配置。
-- **Lint**：前端 `pnpm lint` / `pnpm lint:fix`；Next.js 构建时 ESLint 与 TypeScript 错误均被忽略（见 `next.config.mjs`）。
-
-### 8.2 命名约定
-
-- 后端服务类：`XxxService`，并创建全局单例 `global_xxx_service`。
-- 后端路由文件：`auth.py`、`session.py`，通过 `APIRouter` 组织。
-- 前端组件：PascalCase；Hooks：`useXxx`；工具函数：`camelCase`。
-
-### 8.3 环境变量
-
-- 后端通过 `python-dotenv` 从 `.env` 加载。
-- 前端仅识别以 `NEXT_PUBLIC_` 开头的变量；当前模板支持 `NEXT_PUBLIC_API_URL` 与 `NEXT_PUBLIC_ASSISTANT_ID`。
-- **注意**：仓库中的 `.env` 文件包含密钥，已被 `.gitignore` 忽略，请勿提交。
-
-## 9. 测试策略
-
-当前仓库中**未找到任何测试文件或测试配置**：
-
-- 无 `pytest.ini` / `pyproject.toml` 中的 pytest 配置
-- 无 `tests/` 目录
-- 无前端 Jest/Vitest/Playwright 配置
-
-建议后续补充：
-
-- 后端：pytest + `TestClient` 覆盖 API 路由与工具函数。
-- 前端：至少保留 TypeScript 类型检查与 ESLint；可引入 Vitest 做单元测试。
-
-## 10. 部署流程
-
-### 10.1 Docker Compose（推荐）
-
-```bash
-cd docker-config
-docker compose up --build -d
-```
-
-Compose 文件定义了 `mysql`、`redis`、`backend`、`frontend` 四个服务，共享 `deep_data_network` 桥接网络。
-
-### 10.2 PM2 + LangGraph CLI
-
-```bash
-# 在项目根目录
-./start.sh
-```
-
-等价于：
-
-```bash
-pm2 delete langgraph-app
-pm2 start "langgraph dev --allow-blocking --no-browser" --name "langgraph-app"
-```
-
-### 10.3 前端静态部署
-
-```bash
-cd agent_chatui
-pnpm install
-pnpm build
-./start.sh
-```
-
-`start.sh` 将 `out/` 复制到 `/usr/share/nginx/html/agent_chat_ui` 并重启 Nginx。**该脚本依赖 sudo 与 Nginx，且包含硬编码路径**。
-
-## 11. 安全注意事项
-
-> 当前代码存在多项安全隐患，修改前请务必了解。
-
-1. **JWT 密钥硬编码**
-   - `data_agent/services/auth_service.py` 中 `SECRET_KEY = "your-secret-key-here"` 为硬编码字符串，生产环境必须替换为强随机密钥并通过环境变量注入。
-
-2. **CORS 过于宽松**
-   - `agent_server.py` 中 `allow_origins=["*"]`，生产环境应限制为具体域名。
-
-3. **任意代码执行**
-   - `data_agent/tools/code_execution.py` 使用 `subprocess.run([sys.executable, temp_file_path])` 执行传入的 Python 代码，且无沙箱。该工具一旦被 Agent 调用，可能导致 RCE。
-
-4. **缓存键使用 MD5**
-   - `agent_service.py` 与 `search.py` 使用 `hashlib.md5` 生成缓存键。虽然仅用于缓存去重，但建议敏感场景使用 SHA-256。
-
-5. **前端缺少关键工具文件**
-   - 多个组件引用以下不存在的文件：
-     - `@/lib/utils`
-     - `@/lib/api-key`
-     - `@/lib/ensure-tool-responses`
-     - `@/lib/agent-inbox-interrupt`
-   - 这将导致前端构建/运行失败，需要先补齐或删除相关引用。
-
-6. **配置与接口不一致**
-   - `agent_chatui/src/config/index.ts` 只导出 `AGENT_API_URL`，但 `app/page.tsx` 同时引用了未导出的 `LOGIN_API_URL`。
-   - `langgraph.json` 声明 graph 为 `./data_agent/agent_server.py:agent`，但 `agent_server.py` 当前导出的是 FastAPI `app` 实例。
-
-7. **会话路由未真正鉴权**
-   - `session.py` 中 `user_id = 1` 为硬编码，未从 JWT 中解析用户身份。
-
-8. **API 密钥管理**
-   - Moonshot 与 Tavily 密钥通过环境变量读取，符合基本要求；确保 `.env` 不被提交，并在生产环境使用密钥管理服务。
-
-## 12. 已知问题与注意事项
-
-- **前端构建会失败**：由于缺少 `@/lib/*` 工具文件以及 `LOGIN_API_URL` 未定义，直接 `pnpm build` 会报错。修复前建议先补齐 shadcn/ui 的 `lib/utils.ts` 与项目所需的 `lib/api-key.ts`、`lib/ensure-tool-responses.ts`、`lib/agent-inbox-interrupt.ts`。
-- **虚拟环境路径损坏**：`.venv` 的 `pyvenv.cfg` 指向 `C:\Python314\python.exe`，该路径在当前环境中不存在。建议使用新的 Python 3.12 重新创建虚拟环境。
-- **数据库与 Redis 依赖**：后端启动时会自动建表；Redis 在 `CacheService` 中按 `localhost:6379` 连接，连接失败时仅降级为不缓存，不会阻断启动。
-- **`KimiChat` 模型未使用**：`data_agent/models/chat_models.py` 中定义了自定义 `KimiChat(BaseChatModel)`，但 `AgentService` 实际使用的是 `langchain_openai.ChatOpenAI`。
-- **Docker Compose 中的前端环境变量**：`NEXT_PUBLIC_API_URL=http://backend01:8000` 在浏览器端不会生效（Next.js 仅在构建时嵌入该值），如需动态后端地址需调整架构。
-
-## 13. 常用命令速查
-
-```bash
-# 后端
-pip install -r requirements.txt
-python data_agent/agent_server.py
-
-# 后端（LangGraph CLI）
-langgraph dev --allow-blocking --no-browser
-
-# 前端
-cd agent_chatui
-pnpm install
-pnpm dev
-pnpm build
+前端版本契约是 Node.js 22.11 或更高的 22.x 版本、pnpm 10.5.1。
+
+```powershell
+Set-Location agent_chatui
+pnpm install --frozen-lockfile
+pnpm typecheck
 pnpm lint
-pnpm lint:fix
-pnpm format
 pnpm format:check
-
-# Docker
-cd docker-config
-docker compose up --build -d
+pnpm build
+pnpm dev
 ```
 
-## 14. 相关文档
+生产构建使用静态导出和 `/data_copilot` base path。TypeScript、ESLint 或格式错误
+不得通过配置绕过；Lint 的目标是零警告。
 
-- `README.md`：仅包含项目中文名“人工智能数据探索”。
-- `.trae/documents/project_analysis.md`：中文项目分析报告，描述了当前状态、问题与改进方向，可作为背景参考。
+### 5.3 Docker Compose
+
+```powershell
+docker compose --env-file .env -f docker-config/docker-compose.yml config --quiet
+docker compose --env-file .env -f docker-config/docker-compose.yml build
+docker compose --env-file .env -f docker-config/docker-compose.yml up -d
+docker compose --env-file .env -f docker-config/docker-compose.yml ps
+```
+
+完整运行需要 Docker Desktop Linux Engine，建议系统盘至少保留 10 GB。宿主机
+`3306` 或 `6379` 冲突时，可在本地 `.env` 中改用 `MYSQL_PORT=3307` 或
+`REDIS_PORT=6380`，不要修改容器内部的 `mysql:3306`、`redis:6379`。
+
+## 6. 测试与验收策略
+
+前两轮完成规格建立了 60 项确定性测试。本轮加入 4 项 ORM/UTC 兼容性回归后，
+当前工作树共 64 项；测试使用 SQLite 等隔离依赖，不访问开发 MySQL、Redis、
+Moonshot 或 Tavily。
+
+覆盖范围包括：
+
+- LangGraph/FastAPI 入口、生命周期和健康检查。
+- 缺失模型配置、Redis 降级、代码执行开关和 Agent 错误映射。
+- JWT 配置、注册、登录、`/me`、Token 异常和 CORS。
+- 双用户会话读写删隔离及输入校验无部分写入。
+- SQLAlchemy 共享元数据、UTC 默认值、序列化和会话排序。
+
+文档或窄范围改动至少执行相关检查和定向 `git diff --check`。发布候选还必须执行
+前端类型、零警告 Lint、格式、构建、Compose 解析、凭据扫描、当前源码镜像重建
+及五服务双用户冒烟。没有 Docker 运行证据时，不得声称容器验收通过。
+
+## 7. 安全现状
+
+### 已落实
+
+- JWT 密钥来自环境变量；无有效密钥时认证与会话接口返回稳定 503，健康检查可用。
+- JWT `sub` 使用用户 ID，认证依赖校验签名、算法、有效期和用户存在性。
+- CORS 使用明确白名单，启用凭据时不允许通配符。
+- 会话和消息在服务层同时按 `session_id` 与 `user_id` 过滤；越权统一返回 404。
+- 第一方 Token 使用 `sessionStorage`，不写 URL、日志或错误提示。
+- 代码执行默认关闭；配置和日志具有占位值识别与敏感值脱敏边界。
+
+### 仍有限制
+
+- 本地 LangGraph 使用 noop 认证，第一方 JWT 只保护 FastAPI 认证与会话接口。
+- 没有 Refresh Token、密码找回、邮箱验证、OAuth、RBAC、管理员审计或请求限流。
+- 任意 Python 执行显式开启后仍无沙箱；本地文档分析只适用于受控文件。
+- 数据库没有版本化迁移工具，仍由 `Base.metadata.create_all()` 初始化。
+- 旧的已失效服务凭据仍在 Git 历史中；历史清理由人工在干净工作区另行处理。
+
+## 8. 当前发布债
+
+- 发布就绪迭代仍需完成自动 CI 与配置漂移防护。
+- 当前前端类型检查、零警告 Lint 和格式检查通过。
+- 当前本机 Node.js 25.2.1 超出支持的 22.x 范围，前端全量门禁必须在受支持版本
+  复验，不能以该环境中的局部检查替代发布证据。
+- 当前源码镜像的五服务健康检查、双用户认证隔离和 CORS 冒烟仍是最终发布门槛。
+- 观测性目前只有基础脱敏日志和 `request_id`；统一 Trace、指标、告警和发布看板
+  属于后续候选，不应写成现有能力。
+
+## 9. 相关文档
+
+- `README.md`：本地开发、配置、Docker 和验证命令。
+- `.trae/documents/project_analysis.md`：实际架构、能力边界和技术债。
+- `.trae/documents/roadmap.md`：已完成、当前和后续候选迭代。
+- `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
+- `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
+- `.trae/specs/secure-user-sessions/`：第一方认证与隔离规格。
+- `.trae/specs/enforce-release-readiness/`：当前发布治理规格。

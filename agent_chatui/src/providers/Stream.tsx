@@ -1,18 +1,8 @@
-import React, {
-  createContext,
-  useContext,
-  ReactNode,
-  useState,
-  useEffect,
-} from "react";
-import { useStream } from "@langchain/langgraph-sdk/react";
-import { type Message } from "@langchain/langgraph-sdk";
+import React, { ReactNode, useState, useEffect } from "react";
 import {
   uiMessageReducer,
   isUIMessage,
   isRemoveUIMessage,
-  type UIMessage,
-  type RemoveUIMessage,
 } from "@langchain/langgraph-sdk/react-ui";
 import { useQueryState } from "nuqs";
 import { Input } from "@/components/ui/input";
@@ -26,27 +16,11 @@ import {
   getApiKey,
   setApiKey as storeApiKey,
 } from "@/lib/api-key";
-import { useThreads } from "./Thread";
+import { useThreads } from "./thread-context";
 import { toast } from "sonner";
 import { AGENT_API_URL, ASSISTANT_ID } from "@/config";
 import { resolveConnectionConfig } from "./connection";
-
-export type StateType = { messages: Message[]; ui?: UIMessage[] };
-
-const useTypedStream = useStream<
-  StateType,
-  {
-    UpdateType: {
-      messages?: Message[] | Message | string;
-      ui?: (UIMessage | RemoveUIMessage)[] | UIMessage | RemoveUIMessage;
-      context?: Record<string, unknown>;
-    };
-    CustomEventType: UIMessage | RemoveUIMessage;
-  }
->;
-
-type StreamContextType = ReturnType<typeof useTypedStream>;
-const StreamContext = createContext<StreamContextType | undefined>(undefined);
+import { StreamContext, useTypedStream } from "./stream-context";
 
 async function sleep(ms = 4000) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -264,14 +238,3 @@ export const StreamProvider: React.FC<{ children: ReactNode }> = ({
     </StreamSession>
   );
 };
-
-// Create a custom hook to use the context
-export const useStreamContext = (): StreamContextType => {
-  const context = useContext(StreamContext);
-  if (context === undefined) {
-    throw new Error("useStreamContext must be used within a StreamProvider");
-  }
-  return context;
-};
-
-export default StreamContext;

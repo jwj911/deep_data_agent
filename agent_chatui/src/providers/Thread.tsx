@@ -3,27 +3,10 @@ import { getApiKey } from "@/lib/api-key";
 import { AGENT_API_URL, ASSISTANT_ID } from "@/config";
 import { Thread } from "@langchain/langgraph-sdk";
 import { useQueryState } from "nuqs";
-import {
-  createContext,
-  useContext,
-  ReactNode,
-  useCallback,
-  useState,
-  Dispatch,
-  SetStateAction,
-} from "react";
+import { ReactNode, useCallback, useState } from "react";
 import { createClient } from "./client";
 import { resolveConnectionConfig } from "./connection";
-
-interface ThreadContextType {
-  getThreads: () => Promise<Thread[]>;
-  threads: Thread[];
-  setThreads: Dispatch<SetStateAction<Thread[]>>;
-  threadsLoading: boolean;
-  setThreadsLoading: Dispatch<SetStateAction<boolean>>;
-}
-
-const ThreadContext = createContext<ThreadContextType | undefined>(undefined);
+import { ThreadContext } from "./thread-context";
 
 function getThreadSearchMetadata(
   assistantId: string,
@@ -70,12 +53,4 @@ export function ThreadProvider({ children }: { children: ReactNode }) {
   return (
     <ThreadContext.Provider value={value}>{children}</ThreadContext.Provider>
   );
-}
-
-export function useThreads() {
-  const context = useContext(ThreadContext);
-  if (context === undefined) {
-    throw new Error("useThreads must be used within a ThreadProvider");
-  }
-  return context;
 }

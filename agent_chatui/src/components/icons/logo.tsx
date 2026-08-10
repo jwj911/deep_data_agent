@@ -1,3 +1,4 @@
+import Image from "next/image";
 import React from "react";
 
 interface LogoProps {
@@ -7,10 +8,15 @@ interface LogoProps {
 }
 
 export const Logo: React.FC<LogoProps> = ({ width, height, className }) => {
+  const intrinsicWidth = width ?? height ?? 32;
+  const intrinsicHeight = height ?? width ?? 32;
+
   return (
-    <img
+    <Image
       src="/data_copilot/logo.png"
       alt="Logo"
+      width={intrinsicWidth}
+      height={intrinsicHeight}
       className={`object-contain ${className || ""}`}
       style={{
         width: width || height ? "auto" : undefined,

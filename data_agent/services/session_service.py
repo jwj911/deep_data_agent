@@ -1,10 +1,10 @@
 import uuid
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from data_agent.models.session import Message
 from data_agent.models.session import Session as ChatSession
+from data_agent.models.user import utc_now
 
 
 class SessionService:
@@ -77,8 +77,8 @@ class SessionService:
         )
         db.add(message)
         
-        # Update session updated_at
-        session.updated_at = datetime.utcnow()
+        # Keep session ordering current when a message is added.
+        session.updated_at = utc_now()
         
         db.commit()
         db.refresh(message)

@@ -2,7 +2,8 @@
 
 Deep Data Agent 是一个前后端分离的 AI 数据探索项目。后端同时提供
 FastAPI REST 服务和 LangGraph 图服务，前端使用 Next.js 静态导出，
-MySQL 用于会话持久化，Redis 用于可降级缓存。
+MySQL 用于用户、会话与消息持久化，Redis 用于可降级缓存。第一方注册、
+登录与会话所有权校验由 FastAPI 提供。
 
 ## 服务与访问地址
 
@@ -17,9 +18,10 @@ MySQL 用于会话持久化，Redis 用于可降级缓存。
 ## 环境准备
 
 - Python 3.12
-- Node.js 22
-- pnpm 10
+- Node.js 22.11 或更高的 22.x 版本
+- pnpm 10.5.1
 - Docker Desktop（运行完整容器栈时需要 Linux Engine）
+- Docker 构建与运行前，建议确认系统盘至少有 10 GB 可用空间
 
 复制 `.env.example` 为 `.env`，再填写本地密钥：
 
@@ -28,7 +30,8 @@ Copy-Item .env.example .env
 ```
 
 `MOONSHOT_API_KEY` 是模型查询所需配置，`TAVILY_API_KEY` 仅在调用互联网
-搜索工具时需要。示例文件中的占位值不会被当作有效密钥。
+搜索工具时需要。示例文件中的占位值不会被当作有效密钥；真实 API Key、
+JWT 密钥、密码和 Token 只能写入本地 `.env` 或部署环境，不能写入文档或提交。
 
 ## 本地开发
 
@@ -87,7 +90,9 @@ Compose 会启动 `mysql`、`redis`、`fastapi`、`langgraph` 和 `frontend`，
 地址。修改 MySQL 凭据或数据库名时，需要同步更新 `MYSQL_ROOT_PASSWORD`、
 `MYSQL_DATABASE` 和 `COMPOSE_DATABASE_URL`。修改对外端口时，可在 `.env` 中设置
 `MYSQL_PORT`、`REDIS_PORT`、`FASTAPI_PORT`、`LANGGRAPH_PORT` 和
-`FRONTEND_PORT`。
+`FRONTEND_PORT`。若宿主机的 `3306` 或 `6379` 已被占用，可分别设置
+`MYSQL_PORT=3307` 或 `REDIS_PORT=6380`；容器内部仍使用 `mysql:3306` 和
+`redis:6379`，无需修改 Compose 内部地址。
 
 停止服务但保留数据：
 
@@ -101,7 +106,7 @@ docker compose --env-file .env -f docker-config/docker-compose.yml down
 docker compose --env-file .env -f docker-config/docker-compose.yml down -v
 ```
 
-## 可选认证
+## 认证边界
 
 本地 LangGraph 聊天默认使用 noop 认证，不校验 JWT。浏览器没有 LangSmith
 API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览器
@@ -132,14 +137,15 @@ API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览
   由于启用了凭据，白名单不允许 `*`，且每一项都必须是绝对来源（含协议）。白名单
   内来源的预检请求会返回允许的方法与请求头，非白名单来源不会获得放行。
 
-生成强随机密钥（下方输出仅为占位示例，切勿直接使用）：
+在本地生成强随机密钥：
 
 ```powershell
 [Convert]::ToBase64String((1..36 | % {Get-Random -Max 256}))
 ```
 
-将生成结果写入本地 `.env` 的 `JWT_SECRET_KEY`，或通过环境变量注入；密钥、Token
-和 `.env` 绝不提交到版本控制。
+只将生成结果写入本地 `.env` 的 `JWT_SECRET_KEY`，或通过环境变量注入；不要将
+命令输出粘贴到终端记录、文档、Issue 或提交中。密钥、Token 和 `.env` 绝不进入
+版本控制。
 
 ## 高风险工具
 
@@ -154,8 +160,10 @@ ENABLE_CODE_EXECUTION=false
 
 ## 验证清单
 
-后端确定性测试不调用真实模型或搜索服务，覆盖健康检查、LangGraph 导出、
-缺失模型配置、Redis 降级、代码执行默认关闭和查询错误映射：
+后端确定性测试不调用真实模型或搜索服务。前两轮完成规格建立了 60 项基线测试；
+当前发布治理工作树加入 ORM/UTC 兼容性回归后共 64 项，覆盖健康检查、LangGraph
+导出、缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、
+CORS、双用户会话隔离和时间字段兼容：
 
 ```powershell
 python -m pytest
@@ -183,9 +191,10 @@ git status --short
 ```
 
 完整冒烟检查还需 Docker Linux Engine 正常运行，并在 `.env` 中提供有效模型
-密钥。启动后依次访问前端、FastAPI 健康端点和 LangGraph `/info`，再从前端
-创建线程并向 `agent` 图提交一条消息。密钥、Token、`.env` 和业务数据不得
-提交到版本控制。
+密钥及至少 32 个字符的 JWT 密钥。启动后依次访问前端、FastAPI 健康端点和
+LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息。所有冒烟和
+数据分析验证必须人工触发，输入使用脱敏或专用测试数据；密钥、Token、`.env`
+和业务数据不得提交到版本控制。
 
 配置有效 `JWT_SECRET_KEY` 后，第一方认证冒烟检查建议覆盖：注册并登录两个
 不同用户，各自通过 `GET /api/auth/me` 确认身份；用一个用户的 Token 访问另一个
@@ -198,3 +207,9 @@ git status --short
 本轮接受已失效旧值仍留在 Git 历史中的风险；因当前工作区存在未提交改动，
 历史清理延期。后续须在干净分支使用专门的历史清理工具，并与所有协作者协调
 强制推送及重新拉取。
+
+## 发布文档
+
+- `.trae/documents/project_analysis.md`：当前架构、能力边界、质量状态与技术债。
+- `.trae/documents/roadmap.md`：已完成基线、当前发布治理和后续候选迭代。
+- `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。

@@ -1,0 +1,30 @@
+# 验收清单
+
+- [x] `agent_chatui/next.config.mjs` 保留开发/生产模式差异，但不包含 `ignoreBuildErrors` 或 `ignoreDuringBuilds`。
+- [x] 前端 Lint 以零错误、零警告通过，未通过关闭规则或扩大忽略范围掩盖现有问题。
+- [x] 前端类型检查、Lint、格式检查和生产构建全部返回退出码 0。
+- [x] 前端 Node.js 与 pnpm 版本契约明确，CI 使用受支持版本并严格遵循锁文件。
+- [x] 前端构建产物和工具缓存未进入版本控制。
+- [x] SQLAlchemy 声明式基类使用 2.x 推荐导入，模型仍共享正确元数据。
+- [x] 模型默认时间与会话更新时间使用明确 UTC 语义，不再调用 `datetime.utcnow()`。
+- [x] 时间字段序列化、会话排序、更新时间和数据库写入行为保持兼容。
+- [x] 后端全量测试通过，且项目代码不再产生本规格列出的 ORM/UTC 弃用警告。
+- [x] Python 源码与测试通过 `isort --check-only`。
+- [x] GitHub Actions 在主分支推送和合并请求时触发。
+- [x] 后端 CI 使用 Python 3.12 执行依赖安装、测试和导入排序检查。
+- [x] 前端 CI 执行类型检查、零警告 Lint、格式检查和生产构建。
+- [x] CI 执行 `git diff --check`、Compose 配置解析和关键配置漂移检查。
+- [x] CI 配置并发取消与依赖缓存，失败步骤可定位且日志不包含凭据。
+- [x] 仓库中不再引用 `NEXT_PUBLIC_LOGIN_API_URL`。
+- [x] `NEXT_PUBLIC_REST_API_URL`、JWT 和 CORS 配置在环境示例、Compose、前端与 README 中一致。
+- [x] 自动检查能拒绝 Next.js 质量绕过开关和常见有效凭据模式。
+- [x] `.env`、Token、密码、Moonshot/Tavily Key 和业务数据未进入提交或 CI 产物。
+- [x] 项目分析已更新，不再将数据库、认证、缓存和容器化描述为未实现。
+- [x] Roadmap 区分已完成能力、当前发布治理与后续候选迭代，并标注依赖和进入条件。
+- [x] 变更记录包含本轮行为变化、验证结果、已知风险和未处理技术债。
+- [x] 当前源码的前后端镜像构建成功，MySQL、Redis、FastAPI、LangGraph 和前端五服务健康。
+- [x] 容器冒烟覆盖双用户注册、登录、`/me`、无 Token 401、跨用户会话 404、数据不变和 CORS 白名单。
+- [x] 临时数据和生成物已清理，`git diff --check` 与工作区卫生检查通过，既有用户改动未被覆盖或回滚。
+- [ ] 本轮提交不包含 `.env`、有效凭据、构建产物、缓存或非预期业务数据。
+- [ ] `main` 已推送到 `origin/main`，本地与远端提交一致且工作区干净。
+- [ ] GitHub Hosted CI 的 Backend、Frontend 和 Release Contracts 三个 job 均成功。
