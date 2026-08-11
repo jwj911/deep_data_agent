@@ -49,6 +49,12 @@ SQLAlchemy 模型共享同一份 `Base.metadata`，MySQL 表包括 `users`、`se
 和 `messages`。会话服务在创建、列表、读取、写入和删除时均使用当前用户 ID；
 访问其他用户的资源统一返回 404，避免泄露资源存在性。
 
+数据库初始化已由 `Base.metadata.create_all()` 迁移到 Alembic 版本化迁移。应用
+启动时 `init_db()` 运行迁移到 head：全新空库直接 upgrade 建表；已由早期
+`create_all` 建立且结构与初始基线一致的旧库先 stamp 到基线，既不重建也不删除
+已有数据；已被 Alembic 跟踪的库幂等 upgrade。发布契约校验迁移 head 唯一，
+确定性测试验证升级后的 schema 与模型 `Base.metadata` 等价且无漂移。
+
 Redis 通过 `REDIS_URL` 配置。连接、读取或写入失败时，缓存服务降级为未命中，
 不会阻断 Agent 主流程；诊断日志不输出查询正文或凭据。Agent 响应缓存当前使用
 24 小时有效期。缓存命中、未命中、写入、无效值和不可用均使用固定低基数事件，
@@ -148,8 +154,9 @@ ID 与低基数脱敏事件：
 1. **外部观测平台延期**：当前没有 OpenTelemetry Collector、Prometheus、
    Grafana、SLO 看板、长期日志存储或通知渠道。引入前必须评审访问控制、成本和
    保留周期。
-2. **迁移能力有限**：数据库仍依赖 `Base.metadata.create_all()`，没有 Alembic
-   或版本化 schema 迁移流程。
+2. **迁移能力已收敛**：数据库初始化已由 `Base.metadata.create_all()` 迁移到
+   Alembic 版本化迁移，`init_db` 迁移驱动，旧库 stamp 兼容，head 唯一由发布契约
+   校验，测试确认模型与迁移无漂移；仍无自动数据备份与回滚演练流程，属后续能力。
 3. **LangGraph 认证边界有限**：本地 LangGraph 仍使用 noop 认证；第一方 JWT
    目前只保护 FastAPI 认证与会话接口。
 4. **授权模型有限**：已加入按身份维度的请求限流，但仍无 Refresh Token、密码

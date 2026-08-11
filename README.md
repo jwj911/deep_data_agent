@@ -73,6 +73,31 @@ pnpm dev
 产物，必须是浏览器可访问的地址，不能使用 `langgraph` 等仅容器内部可解析的
 主机名。
 
+## 数据库迁移
+
+项目使用 Alembic 版本化管理数据库 schema。FastAPI 生命周期启动时调用
+`init_db()` 会自动将数据库升级到最新的 head，无需手动建表。若数据库已由早期
+`Base.metadata.create_all()` 建立（存在业务表但没有 Alembic 版本记录），首次
+启动会被标记（stamp）到初始基线，既不重建也不删除已有数据。
+
+迁移使用的数据库地址与应用共用同一来源，取自 `DATABASE_URL`（容器内为
+`COMPOSE_DATABASE_URL`）；`alembic.ini` 不写入任何真实凭据。生成迁移须在受控
+环境经人工评审后执行，真实密钥、密码和连接串不进入版本控制。
+
+常用命令使用系统或 venv 的 `python`：
+
+```powershell
+python -m alembic -c alembic.ini revision --autogenerate -m "描述"
+python -m alembic -c alembic.ini upgrade head
+python -m alembic -c alembic.ini current
+python -m alembic -c alembic.ini heads
+python -m alembic -c alembic.ini history
+```
+
+`revision --autogenerate` 依据模型与当前 schema 的差异生成迁移草稿，须先人工
+评审再纳入版本库；`upgrade head` 将数据库升级到最新版本；`current`、`heads` 和
+`history` 分别查看当前版本、head 列表和迁移历史。
+
 ## Docker Compose
 
 在仓库根目录执行：

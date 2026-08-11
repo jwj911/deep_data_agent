@@ -7,11 +7,27 @@ from scripts import check_release_contracts as contracts
 NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
+MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 REQUIRED_SCAN_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
     COMPOSE_PATH,
 }
+
+
+def _migration_source(revision: str, down_revision: str | None) -> str:
+    parent = "None" if down_revision is None else f'"{down_revision}"'
+    return (
+        f'revision = "{revision}"\n'
+        f"down_revision = {parent}\n"
+        "\n"
+        "def upgrade() -> None:\n"
+        "    pass\n"
+        "\n"
+        "def downgrade() -> None:\n"
+        "    pass\n"
+    )
+
 
 VALID_NEXT_CONFIG = """\
 const nextConfig = {};
@@ -71,6 +87,11 @@ def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, NEXT_CONFIG_PATH, VALID_NEXT_CONFIG)
     _write(root, ENV_EXAMPLE_PATH, VALID_ENV_EXAMPLE)
     _write(root, COMPOSE_PATH, VALID_COMPOSE)
+    _write(
+        root,
+        f"{MIGRATIONS_VERSIONS_PATH}/0001_initial.py",
+        _migration_source("0001", None),
+    )
     return set(REQUIRED_SCAN_FILES)
 
 
@@ -347,4 +368,67 @@ def test_common_credential_patterns_are_reported_without_values(
     ] == [
         ("CREDENTIAL_PATTERN", source_path, 1),
         ("CREDENTIAL_PATTERN", source_path, 2),
+    ]
+
+
+def _migration_head_rules(
+    violations,
+) -> list[tuple[str, str]]:
+    return [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "MIGRATION_HEAD"
+    ]
+
+
+def test_single_migration_head_passes_contract(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        f"{MIGRATIONS_VERSIONS_PATH}/0002_next.py",
+        _migration_source("0002", "0001"),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _migration_head_rules(violations) == []
+
+
+def test_missing_migrations_versions_reports_single_violation(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    versions_dir = tmp_path / MIGRATIONS_VERSIONS_PATH
+    for candidate in versions_dir.glob("*.py"):
+        candidate.unlink()
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _migration_head_rules(violations) == [
+        ("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH)
+    ]
+
+
+def test_absent_migrations_directory_reports_single_violation(tmp_path):
+    _write(tmp_path, NEXT_CONFIG_PATH, VALID_NEXT_CONFIG)
+    _write(tmp_path, ENV_EXAMPLE_PATH, VALID_ENV_EXAMPLE)
+    _write(tmp_path, COMPOSE_PATH, VALID_COMPOSE)
+
+    violations = _check(tmp_path, scan_files=set(REQUIRED_SCAN_FILES))
+
+    assert _migration_head_rules(violations) == [
+        ("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH)
+    ]
+
+
+def test_multiple_migration_heads_report_single_violation(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        f"{MIGRATIONS_VERSIONS_PATH}/0002_fork.py",
+        _migration_source("0002", None),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _migration_head_rules(violations) == [
+        ("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH)
     ]

@@ -36,6 +36,14 @@
   匿名计数键。
 - 新增限流环境变量契约与发布契约检查（`RATE_LIMIT_ENV_DEFAULT`），并补充覆盖
   配额默认值的确定性契约测试。
+- 引入 Alembic 版本化迁移与初始基线（`users`、`sessions`、`messages`），
+  `alembic.ini` 与 `migrations/` 复用应用配置和共享 `Base.metadata`。
+- 数据库初始化改为迁移驱动：全新库 upgrade 到 head、由旧 `create_all` 建立的
+  一致数据库 stamp 到基线，对已处于 head 的库幂等；不重建也不删除已有数据。
+- 新增 `MIGRATION_HEAD` 发布契约校验，静态确认 `migrations/versions` 存在且
+  head 唯一。
+- 新增迁移确定性测试，覆盖干净 SQLite 升级到 head 建出等价 schema、模型与迁移
+  无漂移以及 head 唯一；本地全量确定性测试为 134 项通过。
 
 ### 当前验证证据
 
@@ -85,6 +93,8 @@
   成本和保留周期。
 - 请求限流为单实例本地 Redis 固定窗口，非分布式令牌桶，也无自动封禁或黑名单；
   Redis 故障时 fail-open 放行，可能在缓存不可用期间放宽配额，需依赖降级事件监控。
+- 版本化迁移当前是单 head 本地基线，测试用 SQLite、生产用 MySQL；尚无自动数据
+  备份与回滚演练流程，升级前的备份与恢复须人工在受控环境执行。
 
 ## [0.2.0] - 2026-08-10
 

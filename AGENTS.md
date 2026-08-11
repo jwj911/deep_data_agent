@@ -48,6 +48,7 @@ deep_data_agent/
 ├── AGENTS.md
 ├── CHANGELOG.md
 ├── README.md
+├── alembic.ini
 ├── langgraph.json
 ├── requirements.txt
 ├── tests/
@@ -76,6 +77,9 @@ deep_data_agent/
 │   └── tools/
 ├── docker-config/
 │   └── docker-compose.yml
+├── migrations/
+│   ├── env.py
+│   └── versions/
 └── scripts/
     ├── check_release_contracts.py
     └── export_diagnostics.py
@@ -142,6 +146,9 @@ python -m isort --check-only data_agent tests scripts
 python -m uvicorn data_agent.agent_server:app --host 0.0.0.0 --port 8000
 langgraph dev --host 0.0.0.0 --port 2024 --no-browser --allow-blocking
 python scripts/export_diagnostics.py --input deep_data_agent.log --output diagnostic-report.json
+python -m alembic -c alembic.ini upgrade head
+python -m alembic -c alembic.ini revision --autogenerate -m "描述"
+python -m alembic -c alembic.ini current
 ```
 
 ### 5.2 前端
@@ -188,10 +195,12 @@ Moonshot 或 Tavily。
 - SQLAlchemy 共享元数据、UTC 默认值、序列化和会话排序。
 - 请求 ID 校验与传播、CORS 响应头、结构化事件字段和异常脱敏。
 - 诊断报告过滤、倒序时间线、高频折叠、延迟指标和本地告警信号。
+- 迁移在干净 SQLite 升级到 head 建出等价 schema、模型与迁移无漂移和 head 唯一。
 
 文档或窄范围改动至少执行相关检查和定向 `git diff --check`。发布候选还必须执行
-前端类型、零警告 Lint、格式、构建、Compose 解析、凭据扫描、当前源码镜像重建
-及五服务双用户冒烟。没有 Docker 运行证据时，不得声称容器验收通过。
+前端类型、零警告 Lint、格式、构建、Compose 解析、凭据与发布契约扫描（含迁移
+head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用户冒烟。没有 Docker
+运行证据时，不得声称容器验收通过。
 
 ## 7. 安全现状
 
@@ -213,7 +222,8 @@ Moonshot 或 Tavily。
 - 已加入按身份维度的请求限流，但仍无分布式令牌桶、自动封禁、Refresh Token、
   密码找回、邮箱验证、OAuth、RBAC 或管理员审计。
 - 任意 Python 执行显式开启后仍无沙箱；本地文档分析只适用于受控文件。
-- 数据库没有版本化迁移工具，仍由 `Base.metadata.create_all()` 初始化。
+- 数据库已引入 Alembic 版本化迁移，`init_db` 改为迁移驱动，旧库首次启动 stamp
+  到基线兼容；但仍无自动数据备份与回滚演练流程。
 - 旧的已失效服务凭据仍在 Git 历史中；历史清理由人工在干净工作区另行处理。
 
 ## 8. 当前技术边界
@@ -237,3 +247,4 @@ Moonshot 或 Tavily。
 - `.trae/specs/secure-user-sessions/`：第一方认证与隔离规格。
 - `.trae/specs/enforce-release-readiness/`：已完成的发布治理规格。
 - `.trae/specs/add-observability-diagnostics/`：当前可观测性与诊断规格。
+- `.trae/specs/add-versioned-migrations/`：版本化数据库迁移规格。

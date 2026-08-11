@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
+MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 
 SCAN_EXACT_FILES = {
     ".dockerignore",
@@ -109,6 +110,14 @@ COMPOSE_URL_PATTERN = re.compile(
 )
 COMPOSE_DEFAULT_PATTERN = re.compile(
     r"^\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}$"
+)
+REVISION_PATTERN = re.compile(
+    r"""^revision\s*(?::[^=]+)?=\s*["']([^"']+)["']""",
+    re.MULTILINE,
+)
+DOWN_REVISION_PATTERN = re.compile(
+    r"""^down_revision\s*(?::[^=]+)?=\s*(None|["']([^"']+)["'])""",
+    re.MULTILINE,
 )
 
 
@@ -340,6 +349,53 @@ def _is_tracked_generated_file(path: str) -> bool:
     )
 
 
+def _check_migration_head(
+    root: Path,
+    violations: list[Violation],
+) -> None:
+    """Ensure ``migrations/versions`` exists with exactly one revision head.
+
+    The head is resolved purely by parsing ``revision``/``down_revision``
+    assignments from the version files, so no database connection or Alembic
+    runtime import is required. The head is the revision that no other file
+    references through ``down_revision``. A missing directory, a directory with
+    no revision files, or anything other than exactly one head is a violation.
+    """
+
+    versions_dir = root / PurePosixPath(MIGRATIONS_VERSIONS_PATH)
+    if not versions_dir.is_dir():
+        violations.append(
+            Violation("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH, 1)
+        )
+        return
+
+    revisions: set[str] = set()
+    referenced: set[str] = set()
+    for candidate in sorted(versions_dir.glob("*.py")):
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            relative = candidate.relative_to(root).as_posix()
+            violations.append(Violation("FILE_READ", relative, 1))
+            continue
+        revision_match = REVISION_PATTERN.search(text)
+        if revision_match is None:
+            continue
+        revisions.add(revision_match.group(1))
+        for down_match in DOWN_REVISION_PATTERN.finditer(text):
+            parent = down_match.group(2)
+            if parent is not None:
+                referenced.add(parent)
+
+    heads = revisions - referenced
+    if len(revisions) < 1 or len(heads) != 1:
+        violations.append(
+            Violation("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH, 1)
+        )
+
+
 def check_repository(
     root: str | Path,
     *,
@@ -419,6 +475,8 @@ def check_repository(
             violations.append(
                 Violation("TRACKED_GENERATED_FILE", path, 1)
             )
+
+    _check_migration_head(repository_root, violations)
 
     return sorted(
         set(violations),
