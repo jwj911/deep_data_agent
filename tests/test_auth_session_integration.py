@@ -123,6 +123,7 @@ def test_register_login_and_me_use_only_sqlite(api) -> None:
         "id": registered.json()["id"],
         "username": "alice",
         "email": "alice@example.com",
+        "role": "user",
     }
 
     with api.session_factory() as db:
@@ -155,6 +156,7 @@ def test_register_login_and_me_use_only_sqlite(api) -> None:
         "id": user_id,
         "username": "alice",
         "email": "alice@example.com",
+        "role": "user",
     }
     assert "hashed_password" not in me.text
     assert "access_token" not in me.text

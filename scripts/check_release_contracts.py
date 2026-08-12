@@ -14,6 +14,9 @@ NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
 MIGRATIONS_VERSIONS_PATH = "migrations/versions"
+USER_MODEL_PATH = "data_agent/models/user.py"
+AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
+EVENTS_MODULE_PATH = "data_agent/observability/events.py"
 
 SCAN_EXACT_FILES = {
     ".dockerignore",
@@ -118,6 +121,20 @@ REVISION_PATTERN = re.compile(
 DOWN_REVISION_PATTERN = re.compile(
     r"""^down_revision\s*(?::[^=]+)?=\s*(None|["']([^"']+)["'])""",
     re.MULTILINE,
+)
+ROLE_DEFAULT_PATTERN = re.compile(
+    r"server_default\s*=\s*UserRole\.USER\.value"
+)
+ROLE_CONSTRAINT_PATTERN = re.compile(
+    r"""role\s+IN\s+\(["']user["'],\s*["']admin["']\)"""
+)
+AUTO_ADMIN_PATTERN = re.compile(
+    r"(?:os\.environ(?:\.get)?|os\.getenv|_optional_env)"
+    r"\s*\([^\n)]*ADMIN",
+    re.IGNORECASE,
+)
+SENSITIVE_AUDIT_FIELD_PATTERN = re.compile(
+    r"""["'](?:user_id|username|email|password|token|client_ip)["']\s*,"""
 )
 
 
@@ -396,6 +413,65 @@ def _check_migration_head(
         )
 
 
+def _check_rbac_contracts(
+    texts: dict[str, str],
+    violations: list[Violation],
+) -> None:
+    user_model = texts.get(USER_MODEL_PATH)
+    if user_model is not None:
+        if (
+            ROLE_DEFAULT_PATTERN.search(user_model) is None
+            or "server_default=UserRole.ADMIN.value" in user_model
+        ):
+            violations.append(
+                Violation("RBAC_DEFAULT_ROLE", USER_MODEL_PATH, 1)
+            )
+        if ROLE_CONSTRAINT_PATTERN.search(user_model) is None:
+            violations.append(
+                Violation("RBAC_ROLE_CONSTRAINT", USER_MODEL_PATH, 1)
+            )
+
+    audit_module = texts.get(AUDIT_MODULE_PATH)
+    events_module = texts.get(EVENTS_MODULE_PATH)
+    if (
+        audit_module is not None
+        and (
+            "hmac.new" not in audit_module
+            or "sha256" not in audit_module
+        )
+    ):
+        violations.append(
+            Violation("AUDIT_IDENTITY_REDACTION", AUDIT_MODULE_PATH, 1)
+        )
+    if events_module is not None:
+        if (
+            '"actor_ref"' not in events_module
+            or '"target_ref"' not in events_module
+            or SENSITIVE_AUDIT_FIELD_PATTERN.search(events_module)
+            is not None
+        ):
+            violations.append(
+                Violation(
+                    "AUDIT_IDENTITY_REDACTION",
+                    EVENTS_MODULE_PATH,
+                    1,
+                )
+            )
+
+    for path, text in texts.items():
+        if not path.startswith("data_agent/"):
+            continue
+        match = AUTO_ADMIN_PATTERN.search(text)
+        if match is not None:
+            violations.append(
+                Violation(
+                    "RBAC_AUTO_ADMIN",
+                    path,
+                    text.count("\n", 0, match.start()) + 1,
+                )
+            )
+
+
 def check_repository(
     root: str | Path,
     *,
@@ -429,6 +505,9 @@ def check_repository(
         NEXT_CONFIG_PATH,
         ENV_EXAMPLE_PATH,
         COMPOSE_PATH,
+        USER_MODEL_PATH,
+        AUDIT_MODULE_PATH,
+        EVENTS_MODULE_PATH,
     }
     texts: dict[str, str] = {}
     for path in sorted(scanned | required_files):
@@ -467,6 +546,8 @@ def check_repository(
                 violations.append(
                     Violation("CREDENTIAL_PATTERN", path, line_number)
                 )
+
+    _check_rbac_contracts(texts, violations)
 
     for path in tracked:
         if _is_tracked_local_env(path):

@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 
 from data_agent.models.session import Message
 from data_agent.models.session import Session as ChatSession
-from data_agent.models.user import utc_now
+from data_agent.models.user import User, utc_now
+from data_agent.services.authorization_service import (Permission,
+                                                       ensure_permission)
 
 
 class SessionService:
@@ -13,13 +15,14 @@ class SessionService:
     def create_session(
         self,
         db: Session,
-        user_id: int,
+        actor: User,
         title: str,
     ) -> ChatSession:
         """Create a new chat session"""
+        ensure_permission(actor, Permission.SESSION_WRITE_OWN)
         session_id = str(uuid.uuid4())
         db_session = ChatSession(
-            user_id=user_id,
+            user_id=actor.id,
             session_id=session_id,
             title=title
         )
@@ -31,12 +34,13 @@ class SessionService:
     def get_sessions(
         self,
         db: Session,
-        user_id: int,
+        actor: User,
     ) -> list[ChatSession]:
         """Get all sessions for a user"""
+        ensure_permission(actor, Permission.SESSION_READ_OWN)
         return (
             db.query(ChatSession)
-            .filter(ChatSession.user_id == user_id)
+            .filter(ChatSession.user_id == actor.id)
             .order_by(ChatSession.updated_at.desc())
             .all()
         )
@@ -45,14 +49,15 @@ class SessionService:
         self,
         db: Session,
         session_id: str,
-        user_id: int,
+        actor: User,
     ) -> ChatSession | None:
         """Get a session owned by a user."""
+        ensure_permission(actor, Permission.SESSION_READ_OWN)
         return (
             db.query(ChatSession)
             .filter(
                 ChatSession.session_id == session_id,
-                ChatSession.user_id == user_id,
+                ChatSession.user_id == actor.id,
             )
             .first()
         )
@@ -61,12 +66,13 @@ class SessionService:
         self,
         db: Session,
         session_id: str,
-        user_id: int,
+        actor: User,
         role: str,
         content: str,
     ) -> Message:
         """Add a message to a session"""
-        session = self.get_session(db, session_id, user_id)
+        ensure_permission(actor, Permission.SESSION_WRITE_OWN)
+        session = self.get_session(db, session_id, actor)
         if not session:
             raise ValueError("Session not found")
         
@@ -88,10 +94,11 @@ class SessionService:
         self,
         db: Session,
         session_id: str,
-        user_id: int,
+        actor: User,
     ) -> list[Message]:
         """Get all messages for a session"""
-        session = self.get_session(db, session_id, user_id)
+        ensure_permission(actor, Permission.SESSION_READ_OWN)
+        session = self.get_session(db, session_id, actor)
         if not session:
             raise ValueError("Session not found")
         
@@ -106,10 +113,11 @@ class SessionService:
         self,
         db: Session,
         session_id: str,
-        user_id: int,
+        actor: User,
     ) -> bool:
         """Delete a session"""
-        session = self.get_session(db, session_id, user_id)
+        ensure_permission(actor, Permission.SESSION_DELETE_OWN)
+        session = self.get_session(db, session_id, actor)
         if not session:
             return False
         

@@ -178,10 +178,14 @@ def test_session_crud_is_scoped_to_current_user(session_api) -> None:
     assert added.json()["content"] == "Private message"
 
     with session_api.session_factory() as db:
+        user_a = db.get(User, session_api.user_a_id)
+        user_b = db.get(User, session_api.user_b_id)
+        assert user_a is not None
+        assert user_b is not None
         owner_session = global_session_service.get_session(
             db,
             session_b_id,
-            session_api.user_b_id,
+            user_b,
         )
         assert owner_session is not None
         owner_session_id = owner_session.id
@@ -195,7 +199,7 @@ def test_session_crud_is_scoped_to_current_user(session_api) -> None:
             global_session_service.get_session(
                 db,
                 session_b_id,
-                session_api.user_a_id,
+                user_a,
             )
             is None
         )
@@ -203,7 +207,7 @@ def test_session_crud_is_scoped_to_current_user(session_api) -> None:
             global_session_service.get_messages(
                 db,
                 session_b_id,
-                session_api.user_a_id,
+                user_a,
             )
 
     forbidden_responses = [

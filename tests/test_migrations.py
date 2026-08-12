@@ -16,7 +16,8 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 # Imported for its side effect: registering the Session and Message tables on
 # the shared ``Base.metadata`` used as the migration/comparison target.
@@ -102,9 +103,21 @@ def test_upgrade_head_builds_expected_schema(sqlite_url):
             "username",
             "email",
             "hashed_password",
+            "role",
             "created_at",
             "updated_at",
         }
+        role_column = next(
+            column
+            for column in inspector.get_columns("users")
+            if column["name"] == "role"
+        )
+        assert role_column["nullable"] is False
+        assert "user" in str(role_column["default"])
+        assert any(
+            constraint["name"] == "ck_users_role"
+            for constraint in inspector.get_check_constraints("users")
+        )
         assert _column_names(inspector, "sessions") >= {
             "id",
             "user_id",
@@ -166,6 +179,116 @@ def test_migration_head_is_unique(sqlite_url):
     ).get_heads()
 
     assert len(heads) == 1
+
+
+def test_existing_data_is_preserved_and_backfilled(sqlite_url):
+    command.upgrade(database._alembic_config(), "4e43e097f22b")
+    engine = create_engine(sqlite_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id, username, email, hashed_password) "
+                    "VALUES (1, 'existing', 'existing@example.test', 'hash')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO sessions "
+                    "(id, user_id, session_id, title) "
+                    "VALUES (1, 1, 'existing-session', 'Existing')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO messages "
+                    "(id, session_id, role, content) "
+                    "VALUES (1, 1, 'user', 'preserved')"
+                )
+            )
+
+        _upgrade_to_head()
+
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT role FROM users WHERE id = 1")
+            ).scalar_one() == "user"
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM sessions")
+            ).scalar_one() == 1
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM messages")
+            ).scalar_one() == 1
+
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO users "
+                        "(username, email, hashed_password, role) "
+                        "VALUES ('invalid', 'invalid@example.test', "
+                        "'hash', 'owner')"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+
+def test_role_migration_can_downgrade_without_losing_users(sqlite_url):
+    _upgrade_to_head()
+    engine = create_engine(sqlite_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(username, email, hashed_password) "
+                    "VALUES ('downgrade', 'downgrade@example.test', 'hash')"
+                )
+            )
+
+        command.downgrade(database._alembic_config(), "4e43e097f22b")
+
+        assert "role" not in _column_names(inspect(engine), "users")
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM users")
+            ).scalar_one() == 1
+    finally:
+        engine.dispose()
+
+
+def test_legacy_unversioned_database_stamps_base_then_upgrades(sqlite_url):
+    command.upgrade(database._alembic_config(), "4e43e097f22b")
+    engine = create_engine(sqlite_url)
+    previous_engine = database._engine
+    previous_factory = database._session_factory
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(username, email, hashed_password) "
+                    "VALUES ('legacy', 'legacy@example.test', 'hash')"
+                )
+            )
+            connection.execute(text("DROP TABLE alembic_version"))
+
+        database._engine = engine
+        database._session_factory = None
+        database._prepare_database()
+
+        assert "role" in _column_names(inspect(engine), "users")
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT username, role FROM users")
+            ).one()
+            assert row == ("legacy", "user")
+    finally:
+        database._engine = previous_engine
+        database._session_factory = previous_factory
+        engine.dispose()
 
 
 def test_no_drift_between_metadata_and_migrations(sqlite_url):

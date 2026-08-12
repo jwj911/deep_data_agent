@@ -8,10 +8,16 @@ NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
 MIGRATIONS_VERSIONS_PATH = "migrations/versions"
+USER_MODEL_PATH = "data_agent/models/user.py"
+AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
+EVENTS_MODULE_PATH = "data_agent/observability/events.py"
 REQUIRED_SCAN_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
     COMPOSE_PATH,
+    USER_MODEL_PATH,
+    AUDIT_MODULE_PATH,
+    EVENTS_MODULE_PATH,
 }
 
 
@@ -75,6 +81,32 @@ services:
   frontend:
     logging: *bounded-logging
 """
+VALID_USER_MODEL = """\
+class UserRole:
+    USER = "user"
+    ADMIN = "admin"
+
+class User:
+    role = Column(
+        String(20),
+        nullable=False,
+        server_default=UserRole.USER.value,
+    )
+    constraint = "role IN ('user', 'admin')"
+"""
+VALID_AUDIT_MODULE = """\
+from hashlib import sha256
+import hmac
+
+def reference(secret, value):
+    return hmac.new(secret, value, sha256).hexdigest()
+"""
+VALID_EVENTS_MODULE = """\
+SAFE_FIELDS = {
+    "actor_ref",
+    "target_ref",
+}
+"""
 
 
 def _write(root: Path, relative_path: str, text: str) -> None:
@@ -87,6 +119,9 @@ def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, NEXT_CONFIG_PATH, VALID_NEXT_CONFIG)
     _write(root, ENV_EXAMPLE_PATH, VALID_ENV_EXAMPLE)
     _write(root, COMPOSE_PATH, VALID_COMPOSE)
+    _write(root, USER_MODEL_PATH, VALID_USER_MODEL)
+    _write(root, AUDIT_MODULE_PATH, VALID_AUDIT_MODULE)
+    _write(root, EVENTS_MODULE_PATH, VALID_EVENTS_MODULE)
     _write(
         root,
         f"{MIGRATIONS_VERSIONS_PATH}/0001_initial.py",
@@ -432,3 +467,82 @@ def test_multiple_migration_heads_report_single_violation(tmp_path):
     assert _migration_head_rules(violations) == [
         ("MIGRATION_HEAD", MIGRATIONS_VERSIONS_PATH)
     ]
+
+
+def test_default_admin_role_is_rejected(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        USER_MODEL_PATH,
+        VALID_USER_MODEL.replace(
+            "server_default=UserRole.USER.value",
+            "server_default=UserRole.ADMIN.value",
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "RBAC_DEFAULT_ROLE"
+    ] == [("RBAC_DEFAULT_ROLE", USER_MODEL_PATH)]
+
+
+def test_unconstrained_role_is_rejected(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        USER_MODEL_PATH,
+        VALID_USER_MODEL.replace(
+            """    constraint = "role IN ('user', 'admin')"\n""",
+            "",
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "RBAC_ROLE_CONSTRAINT"
+    ] == [("RBAC_ROLE_CONSTRAINT", USER_MODEL_PATH)]
+
+
+def test_environment_driven_admin_promotion_is_rejected(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    source_path = "data_agent/config/unsafe_admin.py"
+    _write(
+        tmp_path,
+        source_path,
+        'value = os.environ.get("ADMIN_EMAIL")\n',
+    )
+    scan_files.add(source_path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "RBAC_AUTO_ADMIN"
+    ] == [("RBAC_AUTO_ADMIN", source_path)]
+
+
+def test_raw_identity_audit_field_is_rejected(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        EVENTS_MODULE_PATH,
+        VALID_EVENTS_MODULE.replace(
+            '"target_ref",',
+            '"target_ref",\n    "email",',
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "AUDIT_IDENTITY_REDACTION"
+    ] == [("AUDIT_IDENTITY_REDACTION", EVENTS_MODULE_PATH)]

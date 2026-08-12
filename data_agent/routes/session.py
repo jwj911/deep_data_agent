@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from data_agent.config.database import get_db
 from data_agent.models.user import User
-from data_agent.services.auth_service import (get_current_user,
-                                              require_auth_configured)
+from data_agent.services.auth_service import require_auth_configured
+from data_agent.services.authorization_service import (Permission,
+                                                       require_permission)
 from data_agent.services.session_service import global_session_service
 
 router = APIRouter(dependencies=[Depends(require_auth_configured)])
@@ -71,30 +72,36 @@ class SessionWithMessagesResponse(SessionResponse):
 async def create_session(
     session: SessionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_permission(Permission.SESSION_WRITE_OWN)
+    ),
 ):
     """Create a new chat session for the authenticated user."""
     return global_session_service.create_session(
-        db, current_user.id, session.title
+        db, current_user, session.title
     )
 
 @router.get("/", response_model=List[SessionResponse])
 async def get_sessions(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_permission(Permission.SESSION_READ_OWN)
+    ),
 ):
     """Get all sessions owned by the authenticated user."""
-    return global_session_service.get_sessions(db, current_user.id)
+    return global_session_service.get_sessions(db, current_user)
 
 @router.get("/{session_id}", response_model=SessionWithMessagesResponse)
 async def get_session(
     session_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_permission(Permission.SESSION_READ_OWN)
+    ),
 ):
     """Get a session with its messages, scoped to the current user."""
     session = global_session_service.get_session(
-        db, session_id, current_user.id
+        db, session_id, current_user
     )
     if not session:
         raise HTTPException(
@@ -102,7 +109,7 @@ async def get_session(
             detail="Session not found"
         )
     messages = global_session_service.get_messages(
-        db, session_id, current_user.id
+        db, session_id, current_user
     )
     return SessionWithMessagesResponse(
         id=session.id,
@@ -118,14 +125,16 @@ async def add_message(
     session_id: str,
     message: MessageCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_permission(Permission.SESSION_WRITE_OWN)
+    ),
 ):
     """Add a message to a session owned by the current user."""
     try:
         return global_session_service.add_message(
             db,
             session_id,
-            current_user.id,
+            current_user,
             message.role,
             message.content,
         )
@@ -139,11 +148,13 @@ async def add_message(
 async def delete_session(
     session_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_permission(Permission.SESSION_DELETE_OWN)
+    ),
 ):
     """Delete a session owned by the current user."""
     success = global_session_service.delete_session(
-        db, session_id, current_user.id
+        db, session_id, current_user
     )
     if not success:
         raise HTTPException(

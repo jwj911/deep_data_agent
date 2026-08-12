@@ -76,11 +76,11 @@ def test_utc_now_returns_current_naive_utc():
 def test_created_timestamps_are_compatible_with_response_iso_json(db_session):
     service = SessionService()
     user = _create_user(db_session)
-    chat_session = service.create_session(db_session, user.id, "UTC test")
+    chat_session = service.create_session(db_session, user, "UTC test")
     message = service.add_message(
         db_session,
         chat_session.session_id,
-        user.id,
+        user,
         "user",
         "hello",
     )
@@ -117,23 +117,23 @@ def test_updates_refresh_user_and_session_ordering(db_session):
     db_session.refresh(user)
     assert user.updated_at > old_user_update
 
-    first = service.create_session(db_session, user.id, "First")
-    second = service.create_session(db_session, user.id, "Second")
+    first = service.create_session(db_session, user, "First")
+    second = service.create_session(db_session, user, "Second")
     first.updated_at = utc_now() - timedelta(days=2)
     second.updated_at = utc_now() - timedelta(days=1)
     db_session.commit()
 
-    assert service.get_sessions(db_session, user.id) == [second, first]
+    assert service.get_sessions(db_session, user) == [second, first]
     previous_first_update = first.updated_at
 
     service.add_message(
         db_session,
         first.session_id,
-        user.id,
+        user,
         "assistant",
         "new activity",
     )
     db_session.refresh(first)
 
     assert first.updated_at > previous_first_update
-    assert service.get_sessions(db_session, user.id) == [first, second]
+    assert service.get_sessions(db_session, user) == [first, second]

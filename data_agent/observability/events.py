@@ -15,6 +15,7 @@ _ENUM_FIELDS = {
         "error",
         "degraded",
         "disabled",
+        "enabled",
     },
     "cache_status": {
         "hit",
@@ -37,14 +38,31 @@ _ENUM_FIELDS = {
     },
     "decision": {
         "allowed",
+        "denied",
         "limited",
+    },
+    "actor_kind": {
+        "configuration",
+        "system",
+        "user",
+    },
+    "role": {
+        "admin",
+        "user",
+    },
+    "previous_role": {
+        "admin",
+        "user",
     },
 }
 _TOKEN_FIELDS = {
+    "actor_ref",
     "operation",
-    "tool_name",
     "error_code",
     "method",
+    "permission",
+    "target_ref",
+    "tool_name",
 }
 _INTEGER_FIELDS = {
     "status_code",

@@ -18,6 +18,7 @@ from data_agent.models.user import Base
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ALEMBIC_INI = _PROJECT_ROOT / "alembic.ini"
 _MIGRATIONS_DIR = _PROJECT_ROOT / "migrations"
+_LEGACY_SCHEMA_REVISION = "4e43e097f22b"
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[OrmSession] | None = None
@@ -99,7 +100,7 @@ def _prepare_database() -> None:
       to head (idempotent when already at head).
     * Legacy database built by the old ``create_all`` path (``users`` exists but
       ``alembic_version`` does not): its structure matches the initial baseline,
-      so stamp it to head instead of recreating the tables.
+      so stamp that revision and apply every later migration.
     * Brand-new empty database (neither table exists): upgrade to head to
       create the schema.
     """
@@ -109,9 +110,8 @@ def _prepare_database() -> None:
     has_business = "users" in tables
 
     if has_business and not has_version:
-        command.stamp(alembic_cfg, "head")
-    else:
-        command.upgrade(alembic_cfg, "head")
+        command.stamp(alembic_cfg, _LEGACY_SCHEMA_REVISION)
+    command.upgrade(alembic_cfg, "head")
 
 
 def init_db():

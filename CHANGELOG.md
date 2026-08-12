@@ -44,10 +44,25 @@
   head 唯一。
 - 新增迁移确定性测试，覆盖干净 SQLite 升级到 head 建出等价 schema、模型与迁移
   无漂移以及 head 唯一；本地全量确定性测试为 134 项通过。
+- 用户新增固定 `user`/`admin` 角色；新注册用户及从初始基线升级的既有用户均
+  默认为 `user`，数据库使用非空字段、固定值约束和线性 Alembic revision。
+- 新增默认拒绝权限矩阵，以及 `GET /api/admin/users` 和
+  `PATCH /api/admin/users/{user_id}/role`；路由和服务层分别授权，普通用户返回
+  稳定 `403`，管理员不能修改自己的角色，也不能跨用户访问会话。
+- 新增人工 `scripts/bootstrap_admin.py --user-id <id>` 引导；只允许把既有用户
+  提升为管理员，不接受用户名、邮箱、密码或 Token，重复执行保持幂等。
+- 管理员列表、角色变更、授权拒绝、人工引导和任意 Python 执行工具启用接入 UTC
+  结构化审计，身份仅使用 JWT 密钥派生的 HMAC 引用。
+- 注册和 `/api/auth/me` 返回固定角色，前端严格解析但不以浏览器角色字段替代后端
+  授权；CORS 白名单增加 `PATCH` 支持。
+- 发布契约新增默认角色、角色约束、环境自动提权和审计身份字段门禁；全量确定性
+  测试扩展到 155 项。
+- Alembic 配置同时声明新版 `path_separator` 与兼容键
+  `version_path_separator`，消除 Python 3.12 虚拟环境中的配置弃用警告。
 
 ### 当前验证证据
 
-- `python -m pytest -q`：103 项通过，0 个警告；
+- `python -m pytest -q`：155 项通过；
   `python -m isort --check-only data_agent tests scripts`：通过。
 - 新增 28 项确定性测试，覆盖请求 ID 校验与传播、CORS 关联头、LangGraph 配置、
   结构化字段白名单、异常脱敏、轮转配置、诊断过滤、倒序、折叠、指标、告警信号
@@ -95,6 +110,9 @@
   Redis 故障时 fail-open 放行，可能在缓存不可用期间放宽配额，需依赖降级事件监控。
 - 版本化迁移当前是单 head 本地基线，测试用 SQLite、生产用 MySQL；尚无自动数据
   备份与回滚演练流程，升级前的备份与恢复须人工在受控环境执行。
+- 当前 RBAC 只有固定 `user`/`admin` 角色，没有管理员前端、自定义角色、用户删除
+  或跨用户会话权限；管理审计复用有界轮转日志，不是不可变长期审计存储或外部
+  SIEM。
 
 ## [0.2.0] - 2026-08-10
 

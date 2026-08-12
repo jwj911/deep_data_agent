@@ -204,6 +204,7 @@ def test_me_returns_only_public_user_fields(monkeypatch) -> None:
         username="public-user",
         email="public@example.com",
         hashed_password="must-not-be-returned",
+        role="user",
     )
     db = Mock()
     db.query.return_value.filter.return_value.first.return_value = user
@@ -226,6 +227,7 @@ def test_me_returns_only_public_user_fields(monkeypatch) -> None:
         "id": 7,
         "username": "public-user",
         "email": "public@example.com",
+        "role": "user",
     }
 
 

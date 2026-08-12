@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from data_agent.config.config import config
 from data_agent.config.database import get_db
-from data_agent.models.user import User
+from data_agent.models.user import User, UserRole
 from data_agent.services.auth_service import (UserAlreadyExistsError,
                                               create_access_token, create_user,
                                               get_current_user,
@@ -20,6 +20,8 @@ router = APIRouter(dependencies=[Depends(require_auth_configured)])
 
 # Request models
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str
     email: EmailStr
     password: str
@@ -47,6 +49,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    role: UserRole
 
 class Token(BaseModel):
     access_token: str

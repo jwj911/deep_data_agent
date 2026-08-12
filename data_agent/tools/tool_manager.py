@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from data_agent.config.config import config
 from data_agent.config.logger import tool_logger
+from data_agent.observability.audit import emit_audit_event
 from data_agent.tools.code_execution import execute_python_code
 from data_agent.tools.document_analysis import analyze_document
 from data_agent.tools.search import internet_search
@@ -21,6 +22,13 @@ class ToolManager:
         if config.ENABLE_CODE_EXECUTION:
             tool_logger.warning(
                 "Arbitrary Python code execution is explicitly enabled"
+            )
+            emit_audit_event(
+                "security.high_risk_tool.enabled",
+                operation="code_execution.enable",
+                outcome="enabled",
+                actor_kind="configuration",
+                tool_name="execute_python_code",
             )
             self.register_tool("execute_python_code", execute_python_code)
 

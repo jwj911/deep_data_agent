@@ -4,10 +4,13 @@ import { createRequestId, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 export const AUTH_UNAUTHORIZED_EVENT = "auth:unauthorized";
 
+export type UserRole = "user" | "admin";
+
 export interface AuthUser {
   id: number;
   username: string;
   email: string;
+  role: UserRole;
 }
 
 export interface LoginCredentials {
@@ -161,7 +164,8 @@ function parseUser(value: unknown, requestId?: string): AuthUser {
     !isRecord(value) ||
     typeof value.id !== "number" ||
     typeof value.username !== "string" ||
-    typeof value.email !== "string"
+    typeof value.email !== "string" ||
+    (value.role !== "user" && value.role !== "admin")
   ) {
     throw new AuthApiError(
       502,
@@ -175,6 +179,7 @@ function parseUser(value: unknown, requestId?: string): AuthUser {
     id: value.id,
     username: value.username,
     email: value.email,
+    role: value.role,
   };
 }
 

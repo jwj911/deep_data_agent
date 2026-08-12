@@ -72,6 +72,7 @@ def test_registration_normalizes_username_and_public_response() -> None:
         username=request.username,
         email=str(request.email),
         hashed_password="private-hash",
+        role="user",
     )
 
     response = UserResponse.model_validate(user).model_dump()
@@ -81,6 +82,7 @@ def test_registration_normalizes_username_and_public_response() -> None:
         "id": 1,
         "username": "alice",
         "email": "alice@example.com",
+        "role": "user",
     }
     assert "hashed_password" not in response
 

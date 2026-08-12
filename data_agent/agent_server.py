@@ -11,7 +11,7 @@ from data_agent.observability.context import get_or_create_request_id
 from data_agent.observability.middleware import (REQUEST_ID_HEADER,
                                                  ObservabilityMiddleware)
 from data_agent.observability.rate_limit_middleware import RateLimitMiddleware
-from data_agent.routes import auth, session
+from data_agent.routes import admin, auth, session
 from data_agent.services.agent_service import (AgentInvocationError,
                                                global_agent_service)
 
@@ -34,7 +34,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(config.CORS_ALLOWED_ORIGINS),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
     expose_headers=[REQUEST_ID_HEADER],
 )
@@ -46,6 +46,7 @@ app.add_middleware(ObservabilityMiddleware)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(session.router, prefix="/api/sessions", tags=["sessions"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 class QueryRequest(BaseModel):

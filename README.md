@@ -173,6 +173,36 @@ API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览
 命令输出粘贴到终端记录、文档、Issue 或提交中。密钥、Token 和 `.env` 绝不进入
 版本控制。
 
+## 角色权限与管理员引导
+
+用户只有 `user` 和 `admin` 两种固定角色。新注册用户以及从旧 schema 升级的既有
+用户均默认为 `user`；注册参数、用户名、邮箱和环境变量不能自动授予管理员角色。
+注册响应和 `/api/auth/me` 会返回当前角色，但浏览器中的角色字段只用于展示和
+协议校验，不能替代后端授权。
+
+权限矩阵采用默认拒绝策略，并在 FastAPI 路由和服务层分别检查。两种角色都只能
+读写删除自己的会话；`admin` 额外拥有以下管理 API：
+
+- `GET /api/admin/users?offset=0&limit=50`：按用户 ID 稳定分页列出用户，
+  `limit` 范围为 `1..100`。
+- `PATCH /api/admin/users/{user_id}/role`：把另一个用户的角色设为 `user` 或
+  `admin`。管理员不能修改自己的角色。
+
+首位管理员必须由授权人员在受控环境中按内部用户 ID 人工建立。先以普通用户登录，
+从 `/api/auth/me` 获取 ID，再在仓库根目录执行：
+
+```powershell
+python scripts/bootstrap_admin.py --user-id <用户 ID>
+```
+
+脚本只允许把既有用户提升为 `admin`，重复执行保持幂等，不接受用户名、邮箱、
+密码或 Token。角色变更后无需重新签发 JWT；后续请求会从数据库加载最新角色。
+
+管理员列表、角色变更、引导操作、授权拒绝和任意 Python 执行工具启用均写入现有
+UTC 结构化日志。用户身份只记录由服务端 JWT 密钥派生的 HMAC 引用，不记录原始
+用户 ID、用户名、邮箱、Token、IP 或请求体。本轮不提供管理员前端界面、可编辑
+角色、跨用户会话访问、长期审计数据库或外部 SIEM。
+
 ## 请求限流
 
 FastAPI 层在请求 ID 绑定之后、业务处理之前，对认证端点、高成本 `/api/query`、
@@ -261,7 +291,8 @@ ENABLE_CODE_EXECUTION=false
 
 后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph 导出、
 缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
-双用户会话隔离、时间字段兼容、请求 ID、结构化脱敏事件和诊断报告：
+双用户会话隔离、RBAC 管理、管理员引导、角色迁移、时间字段兼容、请求 ID、
+结构化脱敏事件和诊断报告：
 
 ```powershell
 python -m pytest
@@ -309,7 +340,7 @@ LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：当前架构、能力边界、质量状态与技术债。
-- `.trae/documents/roadmap.md`：已完成基线、当前可观测性治理和后续候选迭代。
+- `.trae/documents/roadmap.md`：已完成里程碑和后续候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
-- `.trae/specs/add-observability-diagnostics/`：请求关联、结构化事件、日志保留和
-  人工诊断导出规格。
+- `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
+  脱敏审计规格。

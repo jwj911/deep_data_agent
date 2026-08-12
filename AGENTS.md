@@ -36,9 +36,10 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-发布就绪治理已经完成。当前正式迭代是
-`.trae/specs/add-observability-diagnostics/`，聚焦请求关联、结构化脱敏事件、
-有界日志保留和人工诊断导出，不包含外部监控平台或自动告警通知。
+发布就绪、可观测性、请求限流、版本化迁移以及 RBAC 与脱敏审计治理已经完成。
+最近完成的正式迭代是 `.trae/specs/add-rbac-audit/`，提供固定角色、默认拒绝
+授权、受限管理员 API 和人工管理员引导，不包含管理员前端、自定义角色或长期
+审计存储。
 
 ## 3. 关键结构
 
@@ -81,6 +82,7 @@ deep_data_agent/
 │   ├── env.py
 │   └── versions/
 └── scripts/
+    ├── bootstrap_admin.py
     ├── check_release_contracts.py
     └── export_diagnostics.py
 ```
@@ -94,6 +96,8 @@ deep_data_agent/
   非 2xx 响应。
 - `data_agent/routes/auth.py` 提供注册、登录和 `/me`；
   `data_agent/routes/session.py` 提供受保护的会话与消息接口。
+- `data_agent/routes/admin.py` 提供受 RBAC 保护的用户列表和他人角色变更接口；
+  管理员不绕过会话所有权。
 
 ### 3.2 前端连接
 
@@ -149,6 +153,7 @@ python scripts/export_diagnostics.py --input deep_data_agent.log --output diagno
 python -m alembic -c alembic.ini upgrade head
 python -m alembic -c alembic.ini revision --autogenerate -m "描述"
 python -m alembic -c alembic.ini current
+python scripts/bootstrap_admin.py --user-id <用户 ID>
 ```
 
 ### 5.2 前端
@@ -192,6 +197,8 @@ Moonshot 或 Tavily。
 - 缺失模型配置、Redis 降级、代码执行开关和 Agent 错误映射。
 - JWT 配置、注册、登录、`/me`、Token 异常和 CORS。
 - 双用户会话读写删隔离及输入校验无部分写入。
+- 固定角色矩阵、路由/服务双层授权、管理员分页与角色变更、人工引导和 HMAC
+  身份审计。
 - SQLAlchemy 共享元数据、UTC 默认值、序列化和会话排序。
 - 请求 ID 校验与传播、CORS 响应头、结构化事件字段和异常脱敏。
 - 诊断报告过滤、倒序时间线、高频折叠、延迟指标和本地告警信号。
@@ -215,12 +222,15 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - 日志使用固定结构化字段和有界轮转；诊断导出只读、人工触发且不自动外发。
 - 按身份维度的请求限流：FastAPI 层用 Redis 固定窗口对认证、查询、会话与默认四类
   计数，Redis 故障时 fail-open 放行并记录脱敏降级事件，配额键仅用不可逆摘要。
+- 用户角色固定为 `user`/`admin` 且默认 `user`；管理员接口执行路由与服务双层
+  授权，首位管理员只允许按用户 ID 人工引导，管理与拒绝事件只记录 HMAC 身份引用。
 
 ### 仍有限制
 
 - 本地 LangGraph 使用 noop 认证，第一方 JWT 只保护 FastAPI 认证与会话接口。
-- 已加入按身份维度的请求限流，但仍无分布式令牌桶、自动封禁、Refresh Token、
-  密码找回、邮箱验证、OAuth、RBAC 或管理员审计。
+- 已加入按身份维度的请求限流与固定角色 RBAC，但仍无分布式令牌桶、自动封禁、
+  Refresh Token、密码找回、邮箱验证、OAuth、自定义角色或管理员前端。
+- 管理审计复用有界本地结构化日志，不是不可变长期审计数据库，也未接入外部 SIEM。
 - 任意 Python 执行显式开启后仍无沙箱；本地文档分析只适用于受控文件。
 - 数据库已引入 Alembic 版本化迁移，`init_db` 改为迁移驱动，旧库首次启动 stamp
   到基线兼容；但仍无自动数据备份与回滚演练流程。
@@ -236,6 +246,8 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - LangGraph 本地服务仍为 noop 认证，日志与诊断报告不能作为授权或审计替代品。
 - 请求限流为单实例本地 Redis 固定窗口，非全局分布式速率控制；无令牌桶、自动
   封禁或跨实例配额共享，Redis 故障时 fail-open。
+- 管理员角色只增加用户列表和他人角色变更能力，不允许跨用户读取、写入或删除
+  会话；前端返回的角色字段不能作为授权依据。
 
 ## 9. 相关文档
 
@@ -246,5 +258,6 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
 - `.trae/specs/secure-user-sessions/`：第一方认证与隔离规格。
 - `.trae/specs/enforce-release-readiness/`：已完成的发布治理规格。
-- `.trae/specs/add-observability-diagnostics/`：当前可观测性与诊断规格。
+- `.trae/specs/add-observability-diagnostics/`：已完成的可观测性与诊断规格。
 - `.trae/specs/add-versioned-migrations/`：版本化数据库迁移规格。
+- `.trae/specs/add-rbac-audit/`：已完成的 RBAC 与脱敏审计规格。
