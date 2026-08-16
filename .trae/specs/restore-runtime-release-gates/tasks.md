@@ -71,7 +71,7 @@
   - [x] SubTask 4.5: 验证工作流在 `main` 推送与合并请求触发，Job 结果绑定目标
     SHA，任一构建、迁移、健康或清理前检查失败均返回非零。
 
-- [ ] Task 5: 完成本地回归与治理文档同步：证明本轮只关闭约定的运行时发布门禁，
+- [x] Task 5: 完成本地回归与治理文档同步：证明本轮只关闭约定的运行时发布门禁，
   不提前宣称其他审计问题已解决。
   - [x] SubTask 5.1: 运行 Python 3.12 全量 pytest、isort、发布契约、Alembic 单
     head/升级校验、Compose 解析和 `git diff --check`。
@@ -83,19 +83,24 @@
   - [x] SubTask 5.4: 更新 `README.md`、`AGENTS.md`、项目分析、Roadmap 和
     `CHANGELOG.md`，将 `restore-runtime-release-gates` 标为已完成，仅关闭
     `AUD-014`、`AUD-011`、`AUD-015`，并保留 `AUD-006`、`AUD-007` 等边界。
-  - [ ] SubTask 5.5: 逐项执行 `checklist.md` 的 25 个检查点；失败项新增修复任务，
+  - [x] SubTask 5.5: 逐项执行 `checklist.md` 的 25 个检查点；失败项新增修复任务，
     修复后重新执行相关门禁和清单。
 
-- [ ] Task 6: 创建原子提交并推送 GitHub：完成一次可追溯的迭代交付闭环。
+- [x] Task 6: 创建原子提交并推送 GitHub：完成一次可追溯的迭代交付闭环。
   - [x] SubTask 6.1: 复核暂存范围、凭据扫描和生成物，确认只包含本轮源码、测试、
     CI、规格和必要治理文档。
   - [x] SubTask 6.2: 创建 `restore-runtime-release-gates` 原子提交；若远端前进，
     以保留双方成果的方式整合并重跑受影响门禁。
   - [x] SubTask 6.3: 推送 `main` 到 `origin/main`，确认本地与远端完整 SHA 一致且
     工作区干净。
-  - [ ] SubTask 6.4: 通过 GitHub Actions API 验证目标 SHA 的 Backend、Frontend、
+  - [x] SubTask 6.4: 通过 GitHub Actions API 验证目标 SHA 的 Backend、Frontend、
     Release Contracts 和 Container Smoke 四个 Job 全部成功；失败则修复、重新
     验证并再次提交推送，不把失败 run 记录为完成。
+    - 远端证据（2026-08-16）：implementation SHA
+      `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
+      `31959537002` 为 `completed/success`；Backend、Frontend、Release Contracts、
+      Container Smoke 四个 Job 均为 `success`。Container Smoke 的空库、head
+      重启、legacy 升级和 cleanup 均为 `success`。
 
 - [x] Task 7: 修复验收缺口并复验。
   - [x] SubTask 7.1: 将根 `.dockerignore` 收敛为后端镜像运行资产 allowlist，并

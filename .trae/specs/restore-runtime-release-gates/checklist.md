@@ -24,4 +24,4 @@
 - [x] Container Smoke Job 在成功、失败或取消后均删除容器、网络、匿名卷和临时配置，不污染后续 Job。
 - [x] Python 3.12 全量 pytest、isort、发布契约、Alembic 校验、Compose 解析和 `git diff --check` 全部通过。
 - [x] 前端 typecheck、零警告 lint、format:check、build；生成物已清理，README、AGENTS、项目分析、Roadmap、CHANGELOG 与实际结果一致。
-- [ ] 本轮原子提交已推送到 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 四个 Hosted Job 全部成功。
+- [x] 本轮原子提交已推送到 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 四个 Hosted Job 全部成功。

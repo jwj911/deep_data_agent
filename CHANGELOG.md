@@ -5,9 +5,9 @@
 
 ## [Unreleased]
 
-### 恢复运行时发布门禁（2026-08-16，本地完成）
+### 恢复运行时发布门禁（2026-08-16，本地与 Hosted 完成）
 
-- `restore-runtime-release-gates` 已按当前工作树的本地证据标为第 8 个已完成
+- `restore-runtime-release-gates` 已按本地与 Hosted 证据标为第 8 个已完成
   change-id；Roadmap 余下 11 个未启动候选继续按风险驱动排序。
 - 后端镜像现包含 `alembic.ini` 和完整 `migrations/` 运行资产；发布契约新增镜像
   资产检查，并将凭据内容扫描扩展到全部 Git 跟踪文本和非忽略的待提交文本，同时
@@ -30,8 +30,10 @@
   和 `AUD-015`，开放项变为 **15 个：3 P0 / 3 P1 / 8 P2 / 1 P3**。生产发布仍为
   **NO-GO**，`AUD-006` 的可重复供应链、`AUD-007` 的未知 schema fail-closed 与
   其他既有边界均未扩大。
-- 新增 Hosted Container Smoke 尚未随当前工作树推送，目标 SHA 的该 Job 为
-  **待推送验证**；本文不把工作流定义或本地等价证据写成 Hosted 已通过。
+- implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub
+  Actions run `31959537002` 为 `completed/success`；Backend、Frontend、Release
+  Contracts、Container Smoke 四个 Job 均为 `success`。Container Smoke 的空库、
+  head 重启、legacy 升级和 cleanup 均为 `success`。
 
 ### 项目整体审计（2026-08-12，2026-08-16 交付复核）
 

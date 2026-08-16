@@ -38,8 +38,9 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 
 仓库保留 8 个已完成 change-id；最近完成的是
 `.trae/specs/restore-runtime-release-gates/`，补齐后端镜像迁移资产、全版本控制
-文本凭据扫描和 Container Smoke 工作流。该完成状态以当前工作树的本地证据为准；
-新增 Hosted Container Smoke Job 尚未推送，必须标为待验证，不能提前声称通过。
+文本凭据扫描和 Container Smoke 工作流。该完成状态已有本地与 Hosted 证据；
+implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions
+run `31959537002` 已为 `completed/success`。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
 历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
@@ -52,6 +53,10 @@ Roadmap 现有 11 个未启动候选，下一候选继续按风险驱动排序�
 端点、唯一 migration head、head canary 和已知旧基线升级均通过，旧基线角色回填
 为 `user`；过程未调用外部模型/搜索或发送业务查询，容器、网络、匿名卷、临时配置
 和生成物已完整清理。
+
+本轮 Hosted 证据为上述 run 的 Backend、Frontend、Release Contracts、Container
+Smoke 四个 Job 均为 `success`；Container Smoke 的空库、head 重启、legacy 升级
+和 cleanup 均为 `success`。
 
 ## 3. 关键结构
 
@@ -226,7 +231,8 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 
 2026-08-16 的当前工作树已取得 Python 3.12.9 共 189 项测试、7 项迁移定向测试、
 Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁，以及本地 Docker 五服务发布冒烟证据。
-新增 Hosted Container Smoke Job 仍须在当前 change 推送后绑定目标 SHA 验证。
+implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 Hosted 四个
+Job 也已在 run `31959537002` 验证成功。
 
 ## 7. 安全现状
 
@@ -283,4 +289,5 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁，以及本地 Docker 五服务�
 - `.trae/specs/add-versioned-migrations/`：版本化数据库迁移规格。
 - `.trae/specs/add-rbac-audit/`：已完成的 RBAC 与脱敏审计规格。
 - `.trae/specs/restore-runtime-release-gates/`：已完成的运行时发布门禁规格；
-  Hosted Container Smoke 待推送验证。
+  Hosted 四个 Job 已在 implementation SHA
+  `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。

@@ -31,13 +31,13 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 交付前复核 | 2026-08-16 在同一运行时代码基线上重跑后端、前端、发布契约、Compose 解析与差异检查；两名新的独立验证者逐项确认全部 18 个最终问题，结论仍为 18/18 均 2/2 高置信度。复核只收紧证据边界，不改变严重度、问题数或 Roadmap 映射。 |
 | 审计收口工作区 | 审计收口只修改 5 个治理文档及 `.trae/specs/audit-project-roadmap/`，没有运行时代码、测试、依赖或配置改动。该记录描述历史审计收口，不是当前工作树状态。 |
 | 当前工作树 | `restore-runtime-release-gates` 补齐后端镜像迁移资产、全 Git 文本凭据扫描、Container Smoke 工作流、容器验证脚本及确定性测试，并同步本报告、Roadmap、README、AGENTS、CHANGELOG 与 tasks。 |
-| Roadmap 状态 | 既有 7 个已完成 change-id，加上当前以本地证据完成的 `restore-runtime-release-gates`，共 8 个；余下 11 个未启动候选。新增 Hosted Container Smoke 尚未推送，仍须绑定目标 SHA 验证。 |
+| Roadmap 状态 | 既有 7 个已完成 change-id，加上已有本地与 Hosted 证据的 `restore-runtime-release-gates`，共 8 个；余下 11 个未启动候选。 |
 | 后端本地证据 | Python 3.12.9；`pytest -q` 共 **189 项通过**，其中 `tests/test_migrations.py` 迁移定向测试 **7 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
 | 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check`、`build` 通过，任务生成物已清理。 |
 | 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
 | 本地容器证据 | Docker Linux Engine 从当前源码重建前后端镜像；MySQL、Redis、FastAPI、LangGraph、Frontend 五服务健康，FastAPI `/api/health`、LangGraph `/info`、Frontend `/data_copilot/` 三个 HTTP 端点通过。空库到达唯一 head `8f3c1b7a2d4e`；head 重启保持用户、会话、消息 canary；已知旧基线升级后 canary 保持且角色回填为 `user`。 |
 | 外部调用与清理 | 容器验收只使用专用假配置和不可外连的模型地址，不发送业务查询，未调用真实模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置及前端生成物已完整清理。 |
-| Hosted CI 证据 | 审计目标 SHA 的 run `31554712031` 中 Backend、Frontend、Release Contracts 三个 Job 成功。当前工作树新增 Container Smoke Job，但尚未推送；该新 Job 为**待推送验证**，不能记为 Hosted 已通过。 |
+| Hosted CI 证据 | 审计目标 SHA 的 run `31554712031` 中 Backend、Frontend、Release Contracts 三个 Job 成功。implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run `31959537002` 为 `completed/success`；Backend、Frontend、Release Contracts、Container Smoke 四个 Job 均为 `success`，Container Smoke 的空库、head 重启、legacy 升级和 cleanup 均为 `success`。 |
 | 明确缺口 | 未执行真实模型/搜索/业务数据调用、浏览器行为/E2E、生产备份恢复、容量或并发压测；`AUD-006` 的可重复供应链和 `AUD-007` 的未知 schema fail-closed 未由本轮关闭。 |
 
 ### 1.3 共识方法与严重度
@@ -191,15 +191,13 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
 | FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
 | 前端静态质量门禁 | typecheck、Lint、格式和生产构建通过；没有行为测试，见 `AUD-020`。 |
-| 本地与 Hosted 发布门禁 | 当前工作树本地后端、前端、契约及五服务容器门禁通过；历史目标 SHA 的三个既有 Hosted Job 成功。新增 Hosted Container Smoke 待推送验证，不提前记为通过。 |
+| 本地与 Hosted 发布门禁 | 当前工作树本地后端、前端、契约及五服务容器门禁通过；implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run `31959537002` 为 `completed/success`，四个 Hosted Job 全部成功。 |
 
 ### 3.2 已实现但本轮未验证
 
 - 模型、搜索和文档工具调用代码存在，**未使用真实外部服务或真实业务数据调用**。
 - Redis 降级、Docker 日志轮转和服务健康配置存在，未做本轮故障注入、恢复或容量验证。
 - Python 代码执行默认关闭；关闭状态是配置能力，不证明启用后的隔离安全。
-- 新增 Hosted Container Smoke 工作流已实现但尚未推送，当前目标 SHA 没有该新
-  Job 的 Hosted 运行结果。
 
 ### 3.3 候选而非现状
 
@@ -217,8 +215,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-014：后端镜像缺失 Alembic 迁移资源
 
 - **严重度 / 信心**：**P0 / 2/2 高置信度**。
-- **当前状态**：**当前工作树已关闭（本地证据）**；新增 Hosted Container Smoke
-  待推送验证。
+- **当前状态**：**当前工作树已关闭（本地与 Hosted 证据）**。
 - **历史审计证据**：镜像只复制依赖、`data_agent/` 和 `langgraph.json`，未复制
   `alembic.ini` 与 `migrations/`：
   [data_agent/Dockerfile:L10-L14](../../data_agent/Dockerfile#L10-L14)；
@@ -380,8 +377,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-011：Hosted CI 不构建或冒烟实际容器
 
 - **严重度 / 信心**：**P2 / 2/2 高置信度**。
-- **当前状态**：**当前工作树已关闭（本地证据）**；新 Job 的 Hosted 结果待推送
-  后验证，不提前声明通过。
+- **当前状态**：**当前工作树已关闭（本地与 Hosted 证据）**。
 - **历史审计证据**：后端 Job 只运行 pytest 与 isort：
   [.github/workflows/release-readiness.yml:L30-L40](../../.github/workflows/release-readiness.yml#L30-L40)；
   Contracts Job 仅静态解析 Compose 和执行契约脚本：
@@ -389,9 +385,11 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 - **关闭证据**：工作流新增独立 Container Smoke Job，在 `main` push 与 pull
   request 上绑定目标 SHA，从干净 checkout 构建当前镜像并验证五服务、三个 HTTP、
   唯一 head、head canary 和旧基线升级；失败路径有界脱敏且 `always()` 清理。
-  同一脚本已在本地 Docker Linux Engine 完整通过。
-- **保留边界**：当前关闭不含 SBOM、漏洞扫描、依赖/digest 固定或 Hosted 新 Job
-  的运行结果；后者属于推送后的交付证据。
+  同一脚本已在本地 Docker Linux Engine 完整通过；implementation SHA
+  `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run `31959537002` 为
+  `completed/success`，四个 Job 及 Container Smoke 的空库、head 重启、legacy
+  升级、cleanup 均为 `success`。
+- **保留边界**：当前关闭不含 SBOM、漏洞扫描或依赖/digest 固定。
 
 #### AUD-020：前端没有自动化行为测试基线
 
@@ -543,7 +541,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | `AUD-008` | `exists=true`<br>`severity=P1`<br>`reason=Redis 故障后限流永久 fail-open。`<br>`evidence=`[rate_limit_service:L134-L142](../../data_agent/services/rate_limit_service.py#L134-L142) | `exists=true`<br>`severity=P1`<br>`reason=无重连或探活恢复路径。`<br>`evidence=`[rate_limit_service:L57-L109](../../data_agent/services/rate_limit_service.py#L57-L109) | 保留，Spec 裁决 `P1`。 |
 | `AUD-009` | `exists=true`<br>`severity=P2`<br>`reason=健康端点无条件成功。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | `exists=true`<br>`severity=P2`<br>`reason=该端点不能证明服务可处理业务请求。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | 保留，Spec 裁决 `P2`。 |
 | `AUD-010` | `exists=true`<br>`severity=P2`<br>`reason=会话和消息列表直接全量读取。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | `exists=true`<br>`severity=P2`<br>`reason=历史增长会形成无界响应和内存压力。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | 保留，Spec 裁决 `P2`；吸收 `AUD-013`。 |
-| `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 审计时保留并裁决 `P2`；当前工作树已关闭，Hosted 新 Job 待推送验证。 |
+| `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 审计时保留并裁决 `P2`；当前工作树已由本地与 Hosted 证据关闭。 |
 | `AUD-012` | `exists=true`<br>`severity=P2`<br>`reason=审计 HMAC 直接复用 JWT 密钥。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | `exists=true`<br>`severity=P2`<br>`reason=两个安全用途不能独立授权和轮换。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | 保留，Spec 裁决 `P2`。 |
 | `AUD-013` | `exists=true`<br>`severity=P2`<br>`reason=前端线程搜索固定只取 100 条。`<br>`evidence=`[Thread:L32-L42](../../agent_chatui/src/providers/Thread.tsx#L32-L42) | `exists=true`<br>`severity=P2`<br>`reason=没有继续分页，超限线程静默不可见。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | 存在性 2/2；作为同一分页根因合并到 `AUD-010`，不重复计数。 |
 | `AUD-014` | `exists=true`<br>`severity=P1`<br>`reason=后端镜像没有复制迁移资源。`<br>`evidence=`[Dockerfile:L10-L18](../../data_agent/Dockerfile#L10-L18) | `exists=true`<br>`severity=P1`<br>`reason=FastAPI 启动立即需要这些资源。`<br>`evidence=`[Dockerfile:L10-L15](../../data_agent/Dockerfile#L10-L15) | 审计时保留并裁决 `P0`；当前工作树已关闭。 |
@@ -599,7 +597,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 **本地开发与受控审计：有条件继续。** 可在不使用真实业务数据、不开启 Python
 执行、不暴露到非受控网络、使用已隔离测试凭据和可重建数据的前提下继续开发；
 本轮五服务发布拓扑已用专用假配置在本地运行通过；这不是生产批准，也不代表真实
-外部服务、生产数据或 Hosted 新 Job 已验证。
+外部服务或生产数据已验证。
 
 ### 6.2 放行门槛
 
@@ -610,6 +608,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. 当前 change 推送后验证目标 SHA 的 Backend、Frontend、Release Contracts 和
-   Container Smoke 四个 Hosted Job；发布证据继续区分本地、Hosted CI 和未验证
-   项，不得以工作流定义、历史运行或候选设计冒充当前通过。
+5. implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run
+   `31959537002` 已验证 Backend、Frontend、Release Contracts 和 Container Smoke
+   四个 Hosted Job；后续发布候选仍须绑定各自 SHA 重跑，并继续区分本地、Hosted CI
+   和未验证项。

@@ -3,8 +3,8 @@
 > 状态日期：2026-08-16。历史审计保留 18 个 2/2 高置信度问题；当前工作树已由
 > `restore-runtime-release-gates` 关闭 `AUD-014`、`AUD-011`、`AUD-015`，开放
 > **15 项：3 P0 / 3 P1 / 8 P2 / 1 P3**。本文现有 8 个已完成 change-id 和
-> 11 个未启动候选；生产发布仍为 **NO-GO**。新增 Hosted Container Smoke 为
-> 待推送验证，不得提前记为通过。
+> 11 个未启动候选；生产发布仍为 **NO-GO**。implementation SHA
+> `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 Hosted 四个 Job 已验证成功。
 
 ## 1. 使用与决策原则
 
@@ -31,7 +31,7 @@
 | 5 | `add-request-rate-limiting` | 增加请求限流与资源保护 | FastAPI 身份维度固定窗口限流，Redis 故障时受观测地 fail-open | 已完成 |
 | 6 | `add-versioned-migrations` | 增加版本化数据库迁移 | Alembic 单 head、全新库 upgrade、旧库 stamp 与 schema 漂移测试 | 已完成 |
 | 7 | `add-rbac-audit` | 增加 RBAC 与脱敏审计 | 固定 `user`/`admin` 角色、双层默认拒绝、人工管理员引导和 HMAC 身份引用 | 已完成 |
-| 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke 定义；Hosted 新 Job 待推送验证 | 已完成（本地证据） |
+| 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke | 已完成（本地与 Hosted 证据） |
 
 ## 3. 优先级依据
 
@@ -101,8 +101,7 @@ Mermaid 节点编号为准。
 
 ### 5.1 `restore-runtime-release-gates`
 
-- **状态**：已完成（当前工作树本地证据）；不再计入 11 个未启动候选。Hosted
-  Container Smoke 待推送验证。
+- **状态**：已完成（本地与 Hosted 证据）；不再计入 11 个未启动候选。
 - **结果**：恢复当前源码镜像的迁移可启动性，并让 CI 与凭据门禁能够阻止同类
   镜像缺件或凭据扫描盲区回归进入主分支。
 - **映射**：`AUD-014`（P0，当前镜像运行资产不完整）、`AUD-011`（P2，CI 缺少
@@ -111,10 +110,15 @@ Mermaid 节点编号为准。
 - **本地证据**：Python 3.12.9 共 189 项测试，其中迁移定向测试 7 项；Node.js
   22.22.2、pnpm 10.5.1 前端四门禁通过。当前源码镜像的五服务、三个非业务 HTTP、
   唯一 head、head canary 和已知旧基线升级均通过，旧基线角色回填为 `user`。
+- **Hosted 证据**：implementation SHA
+  `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
+  `31959537002` 为 `completed/success`；Backend、Frontend、Release Contracts、
+  Container Smoke 四个 Job 均为 `success`，Container Smoke 的空库、head 重启、
+  legacy 升级和 cleanup 均为 `success`。
 - **安全与清理**：只使用专用假配置和不可外连的模型地址，未发送业务查询或调用
   外部模型/搜索；容器、网络、匿名卷、临时配置及生成物完整清理。
 - **保留边界**：不关闭 `AUD-006`、`AUD-007`，不部署生产、不重写 Git 历史；
-  Hosted 新 Job 在当前 change 推送前只可记为待验证。
+  Hosted 成功不扩大上述边界。
 
 ### 5.2 `stabilize-delivery-baseline`
 
@@ -376,7 +380,7 @@ Mermaid 节点编号为准。
 | 审计 ID | Spec 最终 severity | 完成 change-id | 当前状态 |
 | --- | --- | --- | --- |
 | `AUD-014` | `P0` | `restore-runtime-release-gates` | 镜像迁移资产及空库/head/已知旧基线本地容器证据通过，已关闭 |
-| `AUD-011` | `P2` | `restore-runtime-release-gates` | Container Smoke 工作流与本地五服务等价证据完成，已关闭；Hosted 新 Job 待推送验证 |
+| `AUD-011` | `P2` | `restore-runtime-release-gates` | Container Smoke 工作流、本地五服务及 Hosted run `31959537002` 证据完成，已关闭 |
 | `AUD-015` | `P2` | `restore-runtime-release-gates` | Git 跟踪及非忽略待提交文本扫描、二进制与脱敏测试通过，已关闭 |
 
 ### 8.2 当前开放 15 项

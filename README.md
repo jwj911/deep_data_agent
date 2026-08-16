@@ -329,11 +329,13 @@ HTTP 端点通过；空库到达唯一 head `8f3c1b7a2d4e`，head 重启 canary 
 不可外连的模型地址，不发送业务查询、未调用模型或搜索外部服务；容器、网络、
 匿名卷、临时配置及前端生成物均已清理。
 
-GitHub Actions 已新增独立 Container Smoke Job，但当前工作树尚未推送，目标 SHA
-的 Hosted Container Smoke 仍为**待推送验证**，不得写成已通过。需要真实模型的
-产品行为冒烟仍须由授权人员人工触发，并使用脱敏或专用测试数据；密钥、Token、
-`.env` 和业务数据不得提交到版本控制。本轮不关闭 `AUD-006` 的依赖/镜像/Actions
-可重复性，也不关闭 `AUD-007` 的未知或漂移 schema fail-closed 边界。
+implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions
+run `31959537002` 已为 `completed/success`；Backend、Frontend、Release Contracts、
+Container Smoke 四个 Job 均为 `success`，Container Smoke 的空库、head 重启、
+legacy 升级和 cleanup 均为 `success`。需要真实模型的产品行为冒烟仍须由授权人员
+人工触发，并使用脱敏或专用测试数据；密钥、Token、`.env` 和业务数据不得提交到
+版本控制。本轮不关闭 `AUD-006` 的依赖/镜像/Actions 可重复性，也不关闭
+`AUD-007` 的未知或漂移 schema fail-closed 边界。
 
 配置有效 `JWT_SECRET_KEY` 后，第一方认证冒烟检查建议覆盖：注册并登录两个
 不同用户，各自通过 `GET /api/auth/me` 确认身份；用一个用户的 Token 访问另一个
@@ -358,4 +360,5 @@ GitHub Actions 已新增独立 Container Smoke Job，但当前工作树尚未推
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
   脱敏审计规格。
 - `.trae/specs/restore-runtime-release-gates/`：已完成的镜像迁移资产、全仓库
-  凭据扫描和本地容器发布门禁规格；Hosted 新 Job 待推送验证。
+  凭据扫描和容器发布门禁规格；Hosted 四个 Job 已在 implementation SHA
+  `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
