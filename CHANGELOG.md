@@ -5,7 +5,39 @@
 
 ## [Unreleased]
 
-### 计划行为变化
+### 项目整体审计（2026-08-12，2026-08-16 交付复核）
+
+- 本轮以 `main` @ `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为锁定基线，
+  审计浏览器与 Next.js 前端、FastAPI、LangGraph/Agent、MySQL、Redis、模型与
+  工具、Docker Compose、GitHub Actions、迁移、认证授权、可观测性、发布契约及
+  未接入主应用的 `utils/` 边界。
+- Python 3.12.9 下 `python -m pytest -q` 共 **155 项通过**；后端格式、发布契约、
+  Alembic、Compose 静态解析及前端类型、Lint、格式和构建门禁通过。
+- 目标 SHA 的 GitHub Actions run `31554712031` 为 `completed/success`；Backend、
+  Frontend、Release Contracts 三个 Job 均成功。
+- 2026-08-16 在相同运行时代码基线上重跑 155 项后端测试、前端类型/Lint/格式/
+  构建、发布契约、Compose 解析和差异检查；两名新的独立验证者再次逐项确认
+  18/18 个最终问题，复核仅收紧证据边界，不改变严重度、数量或 Roadmap 映射。
+- 两名独立验证者共同确认 **18 个 2/2 高置信度问题**；按 Spec P0-P3 定义最终
+  裁决为 **4 个 P0、3 个 P1、10 个 P2 和 1 个 P3**。验证者原始 P1/P2 建议保留
+  在 21 候选 × 2 验证矩阵中，不由最终裁决反写；当前生产发布判断为 **NO-GO**，
+  本地开发与受控审计只能在项目分析记录的约束下继续。
+- 去重与排除结果为：`AUD-013` 合并到 `AUD-010`，`AUD-021` 合并到 `AUD-006`；
+  `AUD-019` 因 0/2 确认而排除，不进入问题清单或 Roadmap；项目分析附录保存了
+  21 个候选的 42 条验证者存在性、原始 severity、理由、校正证据和最终动作。
+- Roadmap 将发现映射为 **12 个未启动后续候选**：
+  `restore-runtime-release-gates`、`stabilize-delivery-baseline`、
+  `secure-agent-tenant-boundaries`、`isolate-file-ingestion`、
+  `bound-agent-resource-use`、`prove-data-recovery`、
+  `harden-identity-administration`、`paginate-session-history`、
+  `deliver-data-analysis-reports`、`rewrite-credential-history`、
+  `define-production-hosting-boundary` 和 `persist-compliance-audit-records`。
+  这些条目均为候选，不代表已经实现、启动或取得验收证据。
+- 本轮仅更新审计、Roadmap 与治理记录，无运行时代码、测试、依赖或部署配置变化。
+  本轮未取得 Docker 五服务实际启动、容器内迁移或真实模型、搜索、业务数据等外部
+  服务证据；Hosted CI 和静态 Compose 检查不能替代这些证据。
+
+### 既有未发布行为变化
 
 - 前端生产构建不再跳过 TypeScript 或 ESLint 错误，Lint 出现警告即返回非零。
 - Node.js 运行范围固定为 22.x，pnpm 固定为 10.5.1，并严格使用锁文件安装。
@@ -60,7 +92,7 @@
 - Alembic 配置同时声明新版 `path_separator` 与兼容键
   `version_path_separator`，消除 Python 3.12 虚拟环境中的配置弃用警告。
 
-### 当前验证证据
+### 既有迭代验证证据
 
 - `python -m pytest -q`：155 项通过；
   `python -m isort --check-only data_agent tests scripts`：通过。

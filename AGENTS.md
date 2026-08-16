@@ -36,10 +36,15 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-发布就绪、可观测性、请求限流、版本化迁移以及 RBAC 与脱敏审计治理已经完成。
-最近完成的正式迭代是 `.trae/specs/add-rbac-audit/`，提供固定角色、默认拒绝
-授权、受限管理员 API 和人工管理员引导，不包含管理员前端、自定义角色或长期
-审计存储。
+仓库保留 7 个已完成 change-id；最近完成的运行时迭代是
+`.trae/specs/add-rbac-audit/`，提供固定角色、默认拒绝授权、受限管理员 API 和
+人工管理员引导，不包含管理员前端、自定义角色或长期审计存储。
+
+2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
+并于 2026-08-16 完成交付复核：155 项后端测试与 Hosted CI 三个 Job 通过，但确认
+18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3），当前生产发布判断为
+NO-GO。Roadmap 中 12 个后续 change-id 均为未启动候选；本轮没有 Docker 五服务
+或真实外部服务运行证据，不得把静态检查或历史结果写成当前验收。
 
 ## 3. 关键结构
 
@@ -252,9 +257,11 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 ## 9. 相关文档
 
 - `README.md`：本地开发、配置、Docker 和验证命令。
-- `.trae/documents/project_analysis.md`：实际架构、能力边界和技术债。
-- `.trae/documents/roadmap.md`：已完成、当前和后续候选迭代。
+- `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、问题清单、
+  证据边界与发布判断。
+- `.trae/documents/roadmap.md`：7 个已完成 change-id 和 12 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
+- `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
 - `.trae/specs/secure-user-sessions/`：第一方认证与隔离规格。
 - `.trae/specs/enforce-release-readiness/`：已完成的发布治理规格。

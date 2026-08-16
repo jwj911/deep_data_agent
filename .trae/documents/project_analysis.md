@@ -1,195 +1,602 @@
 # Deep Data Agent 项目分析
 
-> 状态日期：2026-08-12。本文以当前工作树、已完成规格和本地确定性检查为依据，
-> 不把候选能力或尚未取得的发布证据写成既成事实。
+> 状态日期：2026-08-16
+> 审计执行日期：2026-08-12
+> 审计基线：`main` @ `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`
 
-## 1. 当前定位
+## 1. 范围与证据
 
-Deep Data Agent 是一个前后端分离的 AI 数据探索与智能问答项目。当前版本已经
-完成可运行闭环和第一方多用户认证，不再是只有单一 Agent 脚本的原型：
+### 1.1 审计范围
 
-- Next.js 前端通过 LangGraph SDK 访问流式 Agent，通过独立 REST 客户端访问
-  FastAPI 认证接口。
-- LangGraph 图和 FastAPI 应用已拆分为两个入口，职责和生命周期相互独立。
-- MySQL 持久化用户、会话与消息，Redis 缓存 Agent 与搜索结果并支持故障降级。
-- Docker Compose 编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
-- 第一方认证使用 FastAPI、JWT 和 CORS 白名单，会话资源在服务层按用户隔离。
+本报告以仓库真实可达调用链为边界，覆盖浏览器、Next.js 静态前端、FastAPI、
+LangGraph/DeepAgents、MySQL、Redis、模型与工具调用、Docker Compose、GitHub
+Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为受跟踪遗留模块接受
+可达性检查；静态导入搜索未发现主应用、测试、脚本、Compose 或工作流导入它，
+因此其内部问题不计入 18 个主应用问题，归属处置统一进入 `DEC-005`。
 
-发布就绪、可观测性、请求限流、版本化迁移以及 `add-rbac-audit` 治理已经完成。
-最近一轮用固定角色、默认拒绝授权、受限管理员 API 和脱敏审计建立最小权限基线，
-未引入管理员前端、自定义角色或长期审计存储。
+报告使用以下状态词，彼此不可替换：
 
-## 2. 实际架构
+| 状态 | 含义 |
+|---|---|
+| **已实现** | 当前基线代码或配置中存在该能力；不自动代表本轮运行成功。 |
+| **已验证** | Task 1 在锁定基线上实际执行了确定性检查并取得通过结果。 |
+| **未验证** | 本轮没有取得运行证据，不能用代码存在、静态解析或历史结果代替。 |
+| **候选** | 审计建议、开放决策或后续路线，不是当前已经交付的能力。 |
 
-### 2.1 后端入口与调用链
+### 1.2 锁定基线
 
-`langgraph.json` 加载 `data_agent.agent_graph:agent`；图构建位于
-`data_agent/services/agent_service.py`，不会导入 FastAPI 或触发数据库建表。
-FastAPI 则从 `data_agent.agent_server:app` 启动，只在应用生命周期中调用
-`init_db()`。
+| 项目 | Task 1 与交付复核证据 |
+|---|---|
+| 日期与版本 | 2026-08-12，分支 `main`，完整 HEAD `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`。审计开始前该已推送 HEAD 的工作区干净。 |
+| 交付前复核 | 2026-08-16 在同一运行时代码基线上重跑后端、前端、发布契约、Compose 解析与差异检查；两名新的独立验证者逐项确认全部 18 个最终问题，结论仍为 18/18 均 2/2 高置信度。复核只收紧证据边界，不改变严重度、问题数或 Roadmap 映射。 |
+| 收口工作区 | 本次收口实际 `git status --short` 为 5 个治理文档已修改：`.trae/documents/project_analysis.md`、`.trae/documents/roadmap.md`、`README.md`、`AGENTS.md`、`CHANGELOG.md`；另有本规格目录 `.trae/specs/audit-project-roadmap/` 未跟踪（`spec.md`、`tasks.md`、`checklist.md`）。没有运行时代码、测试、依赖或配置改动；规格目录自身的新增/勾选属于本轮审计记录，不计为代码污染。 |
+| 已完成规格 | `establish-runnable-baseline`、`secure-user-sessions`、`enforce-release-readiness`、`add-observability-diagnostics`、`add-request-rate-limiting`、`add-versioned-migrations`、`add-rbac-audit` 的任务与清单均已完成。 |
+| 后端本地证据 | Python 3.12.9；`pytest -q` 共 **155 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
+| 前端本地证据 | `typecheck`、零警告 `lint`、`format:check`、`build` 通过，任务生成物已清理。 |
+| 前端本机版本复核 | 本次实际执行 `node --version`：仓库根目录与 `agent_chatui/` 均为 `v25.2.1`；执行 `pnpm --version`：仓库根目录为 `10.33.2`，`agent_chatui/` 内为 `10.5.1`。本机入口是 npm 全局安装的 `pnpm@10.33.2`，且无可用 `corepack` 命令；进入前端目录后的版本切换是 pnpm 自身按 [`packageManager: pnpm@10.5.1`](../../agent_chatui/package.json#L94) 解析。Task 1 的 `10.5.1` 与独立验证者的 `10.33.2` 分别与本次前端目录和仓库根目录的实测结果一致。 |
+| 前端版本契约 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`；本机在前端目录运行 pnpm 命令实际警告 `Unsupported engine`，并报告当前 Node `v25.2.1`、pnpm `10.5.1`，故本机 Node 25 不属于受支持版本。Hosted CI 显式设置 [pnpm `10.5.1` 与 Node 22](../../.github/workflows/release-readiness.yml#L51-L63)，目标 run 的 Frontend Job 成功；工作流只固定 Node 主版本，本文不推断其精确补丁版本。 |
+| Hosted CI 证据 | 目标 SHA 对应 GitHub Actions run `31554712031` 成功；Backend、Frontend、Release Contracts 三个 Job 均成功。 |
+| 明确缺口 | **未验证** Docker 五服务本轮实际启动与容器内迁移；未调用真实模型、真实搜索或真实业务数据；未执行浏览器行为/E2E、备份恢复、故障注入、容量或并发压测。Hosted CI 也未补齐这些运行证据。 |
 
-FastAPI 当前提供以下边界：
+### 1.3 共识方法与严重度
 
-- `/api/health`：不调用真实模型的健康检查。
-- `/api/query`：调用 Agent，使用稳定的非 2xx 配置错误和上游错误语义。
-- `/api/auth/*`：注册、OAuth2 密码表单登录和当前用户查询。
-- `/api/sessions/*`：要求 Bearer Token 的会话与消息接口。
-- `/api/admin/*`：要求管理员权限的有界用户列表和他人角色变更接口。
+Task 3 对候选发现执行两名独立验证者复核。本报告只保留双方均确认的
+**18 个 2/2 高置信度问题**：
 
-Agent 默认注册互联网搜索和本地文档分析工具。任意 Python 代码执行工具只有在
-人工设置 `ENABLE_CODE_EXECUTION=true` 时才会注册；当前实现不是沙箱。
+- **P0**：可直接造成凭据/数据泄露、跨用户访问、不可恢复数据损失或发布阻断。
+- **P1**：高概率造成安全边界失效、重大不一致或生产不可用。
+- **P2**：限制可维护性、可恢复性、扩展性或业务迭代，但存在受控绕行。
+- **P3**：低风险改进或文档/体验缺口，不应阻塞更高优先级工作。
 
-FastAPI 全路由通过中间件建立请求上下文。客户端可发送严格的 32 位小写十六进制
-`X-Request-ID`；服务会替换缺失或非法值，并在响应头中回传最终 ID。
-`/api/query`、Agent、缓存和工具共享该上下文。前端为 LangGraph run 生成同格式
-ID，并通过 `configurable` 和 `metadata` 传递，使工具事件可关联到对应 run。
+最终裁决为 **4 个 P0、3 个 P1、10 个 P2、1 个 P3**。存在性仍为 18 个
+2/2 高置信度问题；严重度由本 Spec 定义最终裁决，不反写验证者原始的 P1/P2
+建议。去重结果为：`AUD-013` 合并到 `AUD-010`，`AUD-021` 合并到 `AUD-006`；
+`AUD-019` 为 0/2，不进入问题与路线判断。完整 21 候选 × 2 验证者矩阵见第 4.5 节。
+问题中的修复方案均为**候选**，不应解读为已实现或已验证。
 
-### 2.2 数据与缓存
+### 1.4 已审查且无独立问题的范围
 
-SQLAlchemy 模型共享同一份 `Base.metadata`，MySQL 表包括 `users`、`sessions`
-和 `messages`。用户角色固定为 `user`/`admin` 且默认 `user`。会话服务在创建、
-列表、读取、写入和删除时均使用当前用户 ID；访问其他用户的资源统一返回 404，
-管理员角色也不绕过该所有权边界。
+以下范围已读取创建、调用和门禁上下文；它们不新增最终审计 ID，但其成立的风险
+已经并入对应问题或风险接受：
 
-数据库初始化已由 `Base.metadata.create_all()` 迁移到 Alembic 版本化迁移。应用
-启动时 `init_db()` 运行迁移到 head：全新空库直接 upgrade 建表；已由早期
-`create_all` 建立且结构与初始基线一致的旧库先 stamp 到基线，既不重建也不删除
-已有数据；已被 Alembic 跟踪的库幂等 upgrade。发布契约校验迁移 head 唯一，
-确定性测试验证升级后的 schema 与模型 `Base.metadata` 等价且无漂移。
+- **代码执行临时文件**：工具使用 `delete=False` 的 `NamedTemporaryFile` 创建
+  Python 文件，成功路径在子进程返回后删除：
+  [data_agent/tools/code_execution.py:L26-L41](../../data_agent/tools/code_execution.py#L26-L41)；
+  timeout 和通用异常路径在 `temp_file_path` 已赋值且文件仍存在时删除：
+  [data_agent/tools/code_execution.py:L69-L89](../../data_agent/tools/code_execution.py#L69-L89)。
+  创建/写入阶段在路径赋值前失败仍可能遗留临时资源，而 30 秒 timeout 也不是
+  CPU、内存、网络或文件系统沙箱；因此不另立“临时文件未清理”问题，资源预算并入
+  `AUD-004`，启用后的沙箱与残留风险并入 `RR-004`。
+- **实验图表路径**：`AutoChart` 当前只由
+  [`src/app/test-chart/page.tsx`](../../agent_chatui/src/app/test-chart/page.tsx#L1-L83)
+  这个测试页面导入；组件本身位于
+  [`src/components/ui/ant-charts.tsx`](../../agent_chatui/src/components/ui/ant-charts.tsx#L1-L92)。
+  主对话、上传和报告调用链未导入该组件，故当前只能认定为实验路径，不能把图表/
+  报告写成已交付产品能力，也不形成独立问题。
+- **静态导出与公开 URL**：生产构建在
+  [`next.config.mjs`](../../agent_chatui/next.config.mjs#L1-L20) 启用静态导出及
+  `/data_copilot` base path；浏览器端
+  [`src/config/index.ts`](../../agent_chatui/src/config/index.ts#L1-L14) 读取
+  `NEXT_PUBLIC_API_URL`、`NEXT_PUBLIC_ASSISTANT_ID` 和
+  `NEXT_PUBLIC_REST_API_URL`。这些值按 Next.js 契约会进入公开静态产物，只能承载
+  公开地址/标识，不能承载 Secret；现有独立风险已由 `AUD-003` 的可变 Agent
+  Origin/Key 边界覆盖。
+- **`utils/` 门禁边界**：静态导入搜索未发现主应用、测试、脚本、Compose 或 CI
+  导入仓库根 `utils` 包。发布契约把整个 `utils/` 纳入凭据内容扫描：
+  [scripts/check_release_contracts.py:L21-L65](../../scripts/check_release_contracts.py#L21-L65)，
+  并对所有受跟踪路径（含 `utils/`）检查生成物：
+  [scripts/check_release_contracts.py:L350-L366](../../scripts/check_release_contracts.py#L350-L366)、
+  [scripts/check_release_contracts.py:L552-L558](../../scripts/check_release_contracts.py#L552-L558)。
+  但主应用 CI 只安装根
+  [`requirements.txt`](../../.github/workflows/release-readiness.yml#L30-L40)，
+  后端镜像也只安装根依赖：
+  [data_agent/Dockerfile:L10-L14](../../data_agent/Dockerfile#L10-L14)；均不安装
+  `utils/requirements.txt`，也不运行 `utils/` 独立测试。因此它受凭据/生成物卫生
+  扫描，却不受主应用依赖安装和测试门禁，后续归属仍由 `DEC-005` 决定。
 
-Redis 通过 `REDIS_URL` 配置。连接、读取或写入失败时，缓存服务降级为未命中，
-不会阻断 Agent 主流程；诊断日志不输出查询正文或凭据。Agent 响应缓存当前使用
-24 小时有效期。缓存命中、未命中、写入、无效值和不可用均使用固定低基数事件，
-不记录缓存键或缓存内容。
+## 2. 当前架构
 
-### 2.3 前端边界
+### 2.1 真实调用链与认证边界
 
-前端是 Next.js 15、React 19 和 TypeScript 项目，生产构建静态导出到
-`/data_copilot/`。浏览器侧明确区分两类地址：
+下图描述当前基线，而非目标架构。浏览器对第一方 REST 与 LangGraph 使用不同认证
+材料；主要 Chat UI 直接访问 LangGraph，FastAPI `/api/query` 是另一条无第一方
+JWT 依赖的 Agent 入口。所有强调节点的样式同时定义 `fill` 与 `color`。
 
-- `NEXT_PUBLIC_API_URL`：LangGraph 服务地址。
-- `NEXT_PUBLIC_REST_API_URL`：FastAPI 第一方认证与会话服务地址。
+```mermaid
+flowchart LR
+    B["浏览器<br/>Next.js 静态前端"] -->|"第一方 JWT<br/>仅发往配置的 REST Origin"| F["FastAPI<br/>认证 / 会话 / 管理"]
+    B -->|"LangGraph SDK<br/>可选持久化 API Key"| L["LangGraph 服务<br/>当前无第一方 JWT 所有权"]
+    B -.->|"独立 REST 调用<br/>/api/query 无 JWT 依赖"| Q["FastAPI /api/query"]
 
-第一方登录页直接调用 FastAPI 注册、登录和 `/api/auth/me`，不依赖外部授权码
-交换。JWT 只保存在当前标签页的 `sessionStorage`，并且只附加到同源于配置的
-FastAPI 请求。LangGraph API Key 如存在，仍由独立的 `localStorage` 键管理；
-LangGraph 或第三方 401/403 不会清除第一方登录态。
+    F -->|"SQLAlchemy<br/>用户 / 会话 / 消息 / RBAC"| M[("MySQL")]
+    F -->|"固定窗口限流"| R[("Redis")]
+    Q --> A["AgentService<br/>同步 invoke"]
+    L --> G["LangGraph / DeepAgents 图"]
+    A --> G
+    A -->|"响应缓存"| R
+    G -->|"ChatOpenAI 兼容 API"| X["外部模型服务"]
+    G --> T["默认工具集合"]
+    T -->|"internet_search"| S["外部搜索服务"]
+    T -->|"analyze_document"| D["容器本地文件系统"]
+    T -.->|"ENABLE_CODE_EXECUTION=true 时才注册"| C["本机 Python 子进程"]
+    T -->|"搜索缓存"| R
 
-REST 客户端为每次请求生成 `X-Request-ID`，并从响应头读取诊断 ID。新的
-LangGraph 提交、重试、消息编辑和人工中断处理均生成独立 run 关联 ID。关联字段
-不包含用户名、邮箱、消息正文或 Token。
+    class B browser
+    class F boundary
+    class L,Q risk
+    class A,G compute
+    class M,R data
+    class X,S external
+    class T tool
+    class D,C risk
 
-### 2.4 容器闭环
+    classDef browser fill:#dbeafe,color:#172554,stroke:#2563eb
+    classDef boundary fill:#dcfce7,color:#14532d,stroke:#16a34a
+    classDef risk fill:#fee2e2,color:#7f1d1d,stroke:#dc2626
+    classDef compute fill:#ede9fe,color:#4c1d95,stroke:#7c3aed
+    classDef data fill:#fef3c7,color:#78350f,stroke:#d97706
+    classDef external fill:#e0f2fe,color:#0c4a6e,stroke:#0284c7
+    classDef tool fill:#f3e8ff,color:#581c87,stroke:#9333ea
+```
 
-Compose 使用以下服务名：`mysql`、`redis`、`fastapi`、`langgraph` 和
-`frontend`。数据库与缓存的容器内连接使用服务名，浏览器公开地址则在前端构建
-阶段注入，不能使用只在 Docker 网络中可解析的主机名。关键依赖通过健康检查和
-`service_healthy` 控制启动顺序。
+可核对的装配点：
 
-后端应用日志使用 UTC JSON Lines，同时写入标准输出与有界轮转文件。Compose 的
-五个服务统一使用 Docker `json-file` 大小与文件数上限。当前默认上限为单份
-10 MiB、3 份文件或备份；这是本地与受控部署基线，不是长期日志存储方案。
+- FastAPI 注册 CORS、限流、观测中间件及认证/会话/管理路由：
+  [data_agent/agent_server.py:L33-L49](../../data_agent/agent_server.py#L33-L49)。
+- 第一方会话与管理路由通过数据库读取当前角色并执行默认拒绝权限：
+  [data_agent/routes/session.py:L71-L100](../../data_agent/routes/session.py#L71-L100)、
+  [data_agent/routes/admin.py:L23-L49](../../data_agent/routes/admin.py#L23-L49)。
+- LangGraph 从独立入口加载同一 Agent 图：
+  [langgraph.json:L1-L9](../../langgraph.json#L1-L9)、
+  [data_agent/agent_graph.py:L1-L5](../../data_agent/agent_graph.py#L1-L5)。
+- 图使用 `ChatOpenAI` 兼容模型和默认工具集合：
+  [data_agent/services/agent_service.py:L55-L74](../../data_agent/services/agent_service.py#L55-L74)；
+  搜索工具实际构造外部客户端并使用 Redis：
+  [data_agent/tools/search.py:L7-L18](../../data_agent/tools/search.py#L7-L18)、
+  [data_agent/tools/search.py:L48-L76](../../data_agent/tools/search.py#L48-L76)。
 
-完整运行依赖 Docker Desktop Linux Engine。系统盘空间不足或宿主机 `3306`、
-`6379` 端口冲突会阻断构建或启动；端口冲突应只通过 `.env` 中的宿主端口变量
-重映射，不改变容器内部地址。
+### 2.2 部署与数据边界
 
-## 3. 已完成能力与验证基线
+Compose **已实现** MySQL、Redis、FastAPI、LangGraph、Frontend 五个服务定义及
+健康依赖：
+[MySQL 与 Redis](../../docker-config/docker-compose.yml#L46-L85)、
+[FastAPI](../../docker-config/docker-compose.yml#L87-L121)、
+[LangGraph](../../docker-config/docker-compose.yml#L123-L158)、
+[Frontend](../../docker-config/docker-compose.yml#L160-L175)。
+这只证明编排意图；本轮**未验证**五服务实际运行。MySQL 保存第一方用户、会话和
+消息，Redis 同时承担 Agent/搜索缓存与 FastAPI 固定窗口限流。LangGraph 线程是
+独立持久化语义，尚未与 MySQL 会话建立单一主数据契约，属于 `DEC-001`。
 
-### 3.1 可运行闭环
+### 2.3 遗留模块边界
 
-`establish-runnable-baseline` 已完成入口拆分、依赖补齐、缺失前端工具模块修复、
-公开地址统一、缓存降级、代码执行默认关闭、五服务 Compose 编排和端到端冒烟。
-健康检查和确定性测试不需要真实模型响应。
+`utils/` 是受跟踪代码，但本轮静态可达性搜索未发现主应用、测试、脚本、
+Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据接口或外部集成直接
+归因于当前主应用运行面，也不能把“未导入”当作已治理。其删除、归档到独立仓库，
+或正式纳入依赖锁定、测试、安全审查与责任边界，统一由 `DEC-005` 决定。
 
-### 3.2 第一方认证与所有权隔离
+## 3. 已验证能力
 
-`secure-user-sessions` 已完成以下安全边界：
+### 3.1 已实现且已验证
 
-- JWT 密钥和有效期从环境变量读取，密钥缺失、过短或为占位值时不签发 Token。
-- JWT `sub` 使用不可变用户 ID，并校验签名、算法、有效期和用户存在性。
-- CORS 使用明确来源白名单；启用凭据时拒绝通配符来源。
-- 注册、登录、`/me`、会话标题、消息角色和正文具有稳定校验及错误语义。
-- 所有会话和消息操作均在服务层按 `session_id` 与 `user_id` 联合过滤。
-- 前端第一方 Token 从持久化存储迁移到 `sessionStorage`。
+| 能力 | 已验证证据边界 |
+|---|---|
+| 第一方认证、会话所有权与固定 RBAC | 155 项后端确定性测试覆盖 JWT 配置、注册登录、会话隔离、默认拒绝、管理员 API 与脱敏审计；这不扩展到 LangGraph 对话平面。 |
+| 版本化迁移 | 本地 Alembic 单 head、空库升级、模型/迁移一致性测试通过；不代表当前后端镜像携带迁移资源，也未做生产数据恢复演练。 |
+| 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
+| FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
+| 前端静态质量门禁 | typecheck、Lint、格式和生产构建通过；没有行为测试，见 `AUD-020`。 |
+| 本地与 Hosted 发布门禁 | 本地后端/前端/契约检查通过，目标 SHA 的三个 Hosted Job 成功；工作流没有容器运行证据，见 `AUD-011`。 |
 
-发布就绪治理将自动测试扩展到 75 项，并建立 Backend、Frontend 与 Release
-Contracts 三个 Hosted CI job。后续迭代增加请求 ID、脱敏事件、限流、迁移、
-RBAC、管理员引导和审计测试；当前全量确定性测试为 155 项，且不调用真实模型或
-搜索服务。
+### 3.2 已实现但本轮未验证
 
-### 3.3 按身份维度的请求限流
+- Compose 中存在五服务、端口、卷、健康检查和依赖顺序，**未运行五服务**。
+- 模型、搜索和文档工具调用代码存在，**未使用真实外部服务或真实业务数据调用**。
+- Redis 降级、Docker 日志轮转和服务健康配置存在，未做本轮故障注入、恢复或容量验证。
+- Python 代码执行默认关闭；关闭状态是配置能力，不证明启用后的隔离安全。
 
-`add-request-rate-limiting` 在 FastAPI 层加入按身份维度的请求限流，复用现有请求
-ID 与低基数脱敏事件：
+### 3.3 候选而非现状
 
-- 限流中间件在请求 ID 绑定之后、业务处理之前执行，对认证端点、高成本
-  `/api/query`、其他会话端点和全局默认四类分别计数，四类配额相互独立且计数隔离。
-- 认证请求按 JWT `sub`（无副作用解码，不查库）计数，匿名请求按客户端来源计数；
-  不同用户、不同来源相互隔离。
-- 计数使用 Redis 固定窗口（`INCR` 加首次 `EXPIRE`）；超限返回稳定 `429`，错误体
-  为 `{code: "rate_limited", message, request_id}` 并附 `Retry-After`。
-- `TRUSTED_PROXY_COUNT` 默认 `0`，不信任 `X-Forwarded-For`，伪造转发头不改变
-  计数键；`/api/health` 永不受限，`RATE_LIMIT_ENABLED=false` 可整体关闭。
-- Redis 不可用或出错时 fail-open 放行并发出 `rate_limit.degraded` 事件；限流
-  事件只含维度类别、路由模板、配额键摘要、窗口与计数，不含原始 Token、明文
-  来源、提示词或业务数据。
+18 个问题的修复条件、`DEC-001..005` 的目标选择、长期监控/SIEM、备份恢复、
+对象存储、容器 Hosted 冒烟和浏览器 E2E 都是候选。除非对应代码、测试与运行证据
+进入新基线，不得在 README、Roadmap 或发布说明中标为已完成。
 
-### 3.4 固定角色与脱敏审计
+## 4. 问题清单
 
-`add-rbac-audit` 在第一方认证和版本化迁移之上建立最小 RBAC：
+### 4.1 P0
 
-- 角色只有 `user` 和 `admin`，新注册及迁移用户默认 `user`；注册字段、用户名、
-  邮箱和环境变量不能自动提权。
-- 权限矩阵默认拒绝，会话和管理员操作均在路由与服务层检查；管理员只额外获得
-  用户列表和他人角色变更权限，不能访问他人会话。
-- 用户列表使用 `offset` 与 `1..100` 的 `limit` 做有界分页；管理员不能修改
-  自己的角色，首位管理员只能按用户 ID 人工运行 `scripts/bootstrap_admin.py`。
-- 角色变更立即作用于既有 JWT 的后续请求，因为授权始终读取数据库最新角色。
-- 管理操作、授权拒绝、人工引导和高风险工具启用复用 UTC 结构化日志，身份只写
-  JWT 密钥派生的 HMAC 引用，不写原始 ID、用户名、邮箱、IP、Token 或请求体。
+#### AUD-014：后端镜像缺失 Alembic 迁移资源
 
-## 4. 可观测性与诊断现状
+- **严重度 / 信心**：**P0 / 2/2 高置信度**。
+- **证据**：镜像只复制依赖、`data_agent/` 和 `langgraph.json`，未复制
+  `alembic.ini` 与 `migrations/`：
+  [data_agent/Dockerfile:L10-L14](../../data_agent/Dockerfile#L10-L14)；
+  运行时却按项目根目录解析这两项资源：
+  [data_agent/config/database.py:L15-L20](../../data_agent/config/database.py#L15-L20)，
+  且 FastAPI 启动立即调用迁移：
+  [data_agent/agent_server.py:L19-L23](../../data_agent/agent_server.py#L19-L23)。
+- **影响**：当前镜像契约与启动契约冲突；FastAPI 容器可能在应用可用前失败，
+  Compose 静态解析和宿主机测试无法证明镜像可启动。
+- **建议**：将迁移配置与版本目录纳入后端镜像，固定工作目录和非 root 运行用户；
+  与 `AUD-006` 的可重复构建及 `AUD-011` 的容器 CI 一并处理。
+- **依赖**：无；修复可立即开始，关闭证据与 `AUD-006`、`AUD-011` 联动。
+- **可验证完成条件**：从干净上下文构建镜像；分别对空库、受支持旧库和已在 head
+  的库启动 FastAPI；三者均到达真实 readiness，且数据库 revision 精确为唯一 head。
 
-### 4.1 当前实现
+#### AUD-001：AI 对话平面缺少第一方身份与线程/缓存所有权
 
-- 事件 schema 固定包含版本、UTC 时间、级别、服务、logger、事件名和可选请求
-  ID；业务字段只允许固定白名单。
-- HTTP 事件使用路由模板，不记录查询参数、请求体、客户端 IP 或身份字段。
-- Agent、模型、缓存和工具记录开始、完成、失败或降级生命周期，不记录提示词、
-  消息正文、工具输入输出或缓存键值。
-- 日志消息、异常类型、结构化字段和诊断导出复用凭据、Token、密码与连接串
-  脱敏规则。
-- `scripts/export_diagnostics.py` 由人工触发，可按请求 ID 过滤或生成整体摘要；
-  时间线按新到旧排序，健康检查折叠统计。
-- 报告汇总请求数、5xx 错误率、平均/最大/P95 延迟、缓存降级和模型失败，并生成
-  本地告警信号，不自动上传或发送通知。
+- **严重度 / 信心**：**P0 / 2/2 高置信度**。
+- **证据**：浏览器直接创建 LangGraph 客户端并仅按图 metadata 搜索线程：
+  [agent_chatui/src/providers/Thread.tsx:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40)；
+  FastAPI `/api/query` 没有认证依赖：
+  [data_agent/agent_server.py:L68-L75](../../data_agent/agent_server.py#L68-L75)；
+  Agent 响应缓存键只由查询正文生成：
+  [data_agent/services/agent_service.py:L36-L39](../../data_agent/services/agent_service.py#L36-L39)。
+- **影响**：第一方 JWT/RBAC 只保护 FastAPI 认证、会话和管理接口，未覆盖主要
+  LangGraph 对话平面及独立查询端点；不同用户可能共享线程可见域或缓存结果，
+  无法建立端到端所有权与成本归属。
+- **建议**：统一身份、线程主数据与入口；缓存键至少纳入主体/租户、模型和工具
+  策略，所有读取在服务端校验所有权。
+- **依赖**：`DEC-001`、`DEC-002`、`DEC-003`。
+- **可验证完成条件**：两个独立用户经所有公开 AI 入口创建线程与相同查询后，
+  不能枚举、读取、续写或命中对方私有结果；匿名请求按明确策略拒绝或隔离，
+  并有跨入口集成测试证明。
 
-### 4.2 当前边界与技术债
+#### AUD-003：查询参数可控制 Agent 地址并外发持久化 LangGraph API Key
 
-1. **外部观测平台延期**：当前没有 OpenTelemetry Collector、Prometheus、
-   Grafana、SLO 看板、长期日志存储或通知渠道。引入前必须评审访问控制、成本和
-   保留周期。
-2. **迁移能力已收敛**：数据库初始化已由 `Base.metadata.create_all()` 迁移到
-   Alembic 版本化迁移，`init_db` 迁移驱动，旧库 stamp 兼容，head 唯一由发布契约
-   校验，测试确认模型与迁移无漂移；仍无自动数据备份与回滚演练流程，属后续能力。
-3. **LangGraph 认证边界有限**：本地 LangGraph 仍使用 noop 认证；第一方 JWT
-   目前只保护 FastAPI 认证与会话接口。
-4. **授权模型保持最小**：已加入固定角色 RBAC 与脱敏管理员审计，但仍无
-   Refresh Token、密码找回、邮箱验证、OAuth、自定义角色或管理员前端。审计复用
-   有界日志而非不可变长期存储；限流仍是单实例固定窗口且 Redis 故障时 fail-open。
-5. **高风险工具未沙箱化**：代码执行虽默认关闭，但显式启用后仍可运行任意
-   Python；文档分析也只适用于受控本地文件。
-6. **历史凭据风险已接受但未消除**：旧 Moonshot/Tavily 凭据已轮换失效，新值
-   仅存本地；旧值仍在 Git 历史中。历史重写必须在干净工作区人工发起，并与所有
-   协作者协调，不能在业务迭代中直接执行。
+- **严重度 / 信心**：**P0 / 2/2 高置信度**。
+- **证据**：Agent URL 来自查询状态，客户端把持久化 Key 交给该地址：
+  [agent_chatui/src/providers/Thread.tsx:L22-L35](../../agent_chatui/src/providers/Thread.tsx#L22-L35)；
+  状态检查向可变 URL 的 `/info` 发送认证头：
+  [agent_chatui/src/providers/Stream.tsx:L29-L36](../../agent_chatui/src/providers/Stream.tsx#L29-L36)；
+  URL 规范化只删除尾部斜杠：
+  [agent_chatui/src/providers/connection.ts:L8-L19](../../agent_chatui/src/providers/connection.ts#L8-L19)；
+  Key 保存在 `localStorage`：
+  [agent_chatui/src/lib/api-key.ts:L1-L26](../../agent_chatui/src/lib/api-key.ts#L1-L26)。
+- **影响**：诱导用户打开特制 URL 即可把已保存的 LangGraph Key 发往攻击者控制的
+  Origin，形成客户端凭据外泄与后续服务滥用。
+- **建议**：生产构建禁用查询参数覆盖，或对协议、Origin 和部署 ID 使用
+  编译期允许列表；凭据按 Origin 分区，目标变化时必须清除或重新取得明确授权。
+- **依赖**：`DEC-002`、`DEC-003`。
+- **可验证完成条件**：恶意 `apiUrl`、混合协议、重定向和相似域名测试均无法收到
+  既有 Key；只有允许 Origin 能收到与其绑定的新凭据，CSP/连接策略同步生效。
 
-## 5. 发布判断
+#### AUD-002：默认文档工具可读取任意本地路径
 
-项目已具备本地开发、受控 Docker 环境和自动 CI 的发布基线。可观测性提供可重复
-的本地诊断能力，但不等同于完整生产监控平台；请求限流是单实例固定窗口。当前
-RBAC 与审计形成最小管理边界，但不等同于自定义权限平台、管理员控制台或长期
-合规审计系统。
+- **严重度 / 信心**：**P0 / 2/2 高置信度**。
+- **证据**：文档分析工具默认注册：
+  [data_agent/tools/tool_manager.py:L18-L33](../../data_agent/tools/tool_manager.py#L18-L33)；
+  工具直接对调用方给出的路径执行存在性、大小检查和文件读取：
+  [data_agent/tools/document_analysis.py:L21-L43](../../data_agent/tools/document_analysis.py#L21-L43)，
+  未见允许根目录、所有权、规范化、符号链接或特殊文件约束。
+- **影响**：可被模型工具调用影响的用户可能读取容器内配置、挂载文件或其他用户
+  文件；内容还可能进入模型上下文、日志之外的上游服务或最终响应。
+- **建议**：采用对象存储 ID 或每用户隔离工作区；使用
+  `resolve()` 后的允许根校验、拒绝符号链接/设备文件，并在工具层再次校验主体所有权。
+- **依赖**：`DEC-004`。
+- **可验证完成条件**：路径穿越、绝对路径、符号链接逃逸、竞态替换、特殊文件和
+  跨用户文件测试全部拒绝；只允许读取当前主体已授权、受大小与类型限制的对象。
 
-任何后续能力验证都必须人工触发，使用脱敏数据或专用测试数据；真实密钥、Token、
-业务数据和可识别用户信息不得进入提示词、日志、测试固件、CI 产物或版本控制。
+### 4.2 P1
+
+#### AUD-004：同步 Agent 调用阻塞事件循环且缺少端到端预算
+
+- **严重度 / 信心**：**P1 / 2/2 高置信度**。
+- **证据**：异步 FastAPI 路由直接调用同步服务：
+  [data_agent/agent_server.py:L68-L75](../../data_agent/agent_server.py#L68-L75)；
+  服务执行同步图 `.invoke()`：
+  [data_agent/services/agent_service.py:L93-L134](../../data_agent/services/agent_service.py#L93-L134)；
+  搜索工具的 `max_results` 没有上界：
+  [data_agent/tools/search.py:L32-L36](../../data_agent/tools/search.py#L32-L36)；
+  Compose 以 `--allow-blocking` 启动 LangGraph：
+  [docker-config/docker-compose.yml:L123-L138](../../docker-config/docker-compose.yml#L123-L138)。
+- **影响**：慢模型、递归工具调用或高结果量搜索会占住事件循环/工作线程；缺少统一
+  超时、并发、递归、Token、工具次数和输出预算时，少量请求即可造成雪崩或成本失控。
+- **建议**：使用异步调用或受控执行池，增加可取消的总截止时间、并发舱壁、
+  LangGraph 递归上限、模型/工具/Token/输出预算，并把边界纳入所有 AI 入口。
+  `NamedTemporaryFile` 创建/清理的残留资源边界也在本项治理，不另立问题。
+- **依赖**：`AUD-001`；代码执行隔离策略依赖 `RR-004` 的风险处置决定。
+- **可验证完成条件**：慢模型、工具超时、递归、客户端断开和并发压测中，请求在
+  预算内终止并释放资源；健康/认证请求延迟保持在定义阈值内，超限事件可按请求 ID
+  诊断且不含敏感内容。
+
+#### AUD-007：旧库仅凭 `users` 表存在便盲目 stamp
+
+- **严重度 / 信心**：**P1 / 2/2 高置信度**。
+- **证据**：初始化仅检查 `alembic_version` 和 `users` 两个表名；只要存在
+  `users` 且无版本表，就直接 stamp 固定基线再 upgrade：
+  [data_agent/config/database.py:L94-L114](../../data_agent/config/database.py#L94-L114)。
+- **影响**：结构不完整、手工变更或来自其他应用的数据库会被错误声明为兼容基线，
+  后续迁移可能失败、遗漏约束或在错误结构上修改数据。
+- **建议**：stamp 前对基线表、列、类型、索引、外键与关键约束做完整指纹校验；
+  不匹配时 fail-closed 并提供人工迁移/恢复手册。
+- **依赖**：`RR-001`。
+- **可验证完成条件**：完整旧基线可无损升级；缺表、缺列、类型/约束漂移和陌生
+  `users` 表均在任何 stamp/DDL 前终止；失败路径保持数据不变并给出稳定诊断码。
+
+#### AUD-008：Redis 短暂故障会让缓存与限流永久降级
+
+- **严重度 / 信心**：**P1 / 2/2 高置信度**。
+- **证据**：缓存连接错误后把实例设为不可用，后续操作直接短路：
+  [data_agent/services/cache_service.py:L49-L66](../../data_agent/services/cache_service.py#L49-L66)；
+  限流服务同样永久置为不可用：
+  [data_agent/services/rate_limit_service.py:L57-L58](../../data_agent/services/rate_limit_service.py#L57-L58)，
+  并在不可用时持续 fail-open：
+  [data_agent/services/rate_limit_service.py:L93-L109](../../data_agent/services/rate_limit_service.py#L93-L109)。
+- **影响**：一次瞬时抖动即可在进程余下生命周期内关闭缓存和请求保护；服务表面
+  仍可用，但成本、延迟和滥用风险持续上升，只有重启才能恢复。
+- **建议**：实现带抖动指数退避、单飞探测和熔断状态机；限流恢复与缓存恢复分开
+  观测，并明确故障期间 fail-open/fail-closed 策略。
+- **依赖**：`RR-006`。
+- **可验证完成条件**：故障注入后服务进入可观测降级；Redis 恢复时无需重启即可在
+  有界时间内恢复缓存与计数，且探测不会形成重连风暴或错误放大。
+
+### 4.3 P2
+
+#### AUD-015：凭据扫描未覆盖全部受跟踪文本
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：发布检查的递归扫描前缀仅包含 `agent_chatui/src`、`data_agent` 和
+  `utils`：
+  [scripts/check_release_contracts.py:L47-L65](../../scripts/check_release_contracts.py#L47-L65)，
+  文件发现也只遍历这些前缀：
+  [scripts/check_release_contracts.py:L158-L185](../../scripts/check_release_contracts.py#L158-L185)。
+- **影响**：`scripts/`、`migrations/`、`.github/`、测试、文档及其他受跟踪文本
+  可绕过内容扫描，发布门禁可能在凭据已经进入 Git 时仍显示通过。
+- **建议**：以 `git ls-files` 为输入，对所有可识别文本和小型未知文件扫描，明确
+  二进制/生成物排除规则；增加成熟 secret scanner，保留自定义占位符检查。
+- **依赖**：无。
+- **可验证完成条件**：在每个顶层目录植入无效测试 canary 均使本地与 Hosted CI
+  失败；真实二进制和允许样例不误报，扫描结果不回显完整敏感值。
+
+#### AUD-006：Python 依赖、包元数据、执行契约及镜像/Actions 不可重复
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：28 个直接依赖大多未固定且无哈希锁：
+  [requirements.txt:L1-L28](../../requirements.txt#L1-L28)；
+  包元数据声明空依赖：
+  [setup.py:L4-L7](../../setup.py#L4-L7)；
+  Compose 基础服务使用浮动镜像标签：
+  [docker-config/docker-compose.yml:L46-L78](../../docker-config/docker-compose.yml#L46-L78)；
+  Hosted CI 每次重新解析安装：
+  [.github/workflows/release-readiness.yml:L30-L40](../../.github/workflows/release-readiness.yml#L30-L40)。
+- **影响**：相同 SHA 在不同日期可能得到不同依赖、镜像和行为；`pip install .` 与
+  `pip install -r requirements.txt` 契约分裂，供应链回滚和故障复现困难。
+- **建议**：统一权威依赖声明，生成带哈希锁文件，区分运行/开发依赖；
+  镜像和 Actions 固定到不可变 digest/SHA并建立自动更新流程。原 `AUD-021`
+  的 Actions 固定问题并入本项；与 `AUD-014`、`AUD-011` 联动。
+- **依赖**：无；关闭证据与 `AUD-014`、`AUD-011` 联动。
+- **可验证完成条件**：隔离环境和镜像构建只使用锁文件/固定 digest；同一 SHA
+  连续构建得到一致依赖清单，`pip install .` 能运行应用与迁移，依赖漂移在 CI 中失败。
+
+#### AUD-011：Hosted CI 不构建或冒烟实际容器
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：后端 Job 只运行 pytest 与 isort：
+  [.github/workflows/release-readiness.yml:L30-L40](../../.github/workflows/release-readiness.yml#L30-L40)；
+  Contracts Job 仅静态解析 Compose 和执行契约脚本：
+  [.github/workflows/release-readiness.yml:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101)。
+- **影响**：当前绿色 Hosted CI 无法发现镜像上下文遗漏、入口错误、运行用户权限、
+  容器内迁移、健康检查或服务网络问题，`AUD-014` 即为该盲区实例。
+- **建议**：增加后端/前端镜像构建、SBOM/漏洞门禁及最小容器冒烟；是否在
+  CI 启动完整 Compose 由成本决定，但至少验证 FastAPI 空库迁移和真实 readiness。
+- **依赖**：`AUD-014`；可重复构建证据与 `AUD-006` 联动。
+- **可验证完成条件**：Hosted CI 从干净 checkout 构建发布镜像并运行最小服务；
+  故意删除迁移资源、破坏入口或 readiness 时 Job 必须失败并保留脱敏诊断。
+
+#### AUD-020：前端没有自动化行为测试基线
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：前端脚本只有开发、构建、类型、Lint 和格式检查，没有 `test`：
+  [agent_chatui/package.json:L16-L24](../../agent_chatui/package.json#L16-L24)；
+  Hosted CI 也只执行四项静态/构建门禁：
+  [.github/workflows/release-readiness.yml:L66-L78](../../.github/workflows/release-readiness.yml#L66-L78)。
+- **影响**：Token 存储/清理、Origin 限制、线程所有权、文件限制、流式提交和错误
+  恢复等浏览器行为只能人工发现，重构时易发生安全与交互回归。
+- **建议**：先建立 Vitest/Testing Library 单元与集成基线，再为认证、
+  URL/Key 边界、线程隔离、上传限制和关键流式路径增加少量 Playwright E2E。
+- **依赖**：无。
+- **可验证完成条件**：本地与 Hosted CI 执行测试并上传不含敏感数据的失败诊断；
+  对 `AUD-003`、`AUD-005`、认证状态及线程分页的正反场景有稳定自动化覆盖。
+
+#### AUD-005：文件上传数量/大小无限制并直接 Base64 进入线程
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：上传只按 MIME 和重复项筛选后并行转换所有文件：
+  [agent_chatui/src/hooks/use-file-upload.tsx:L49-L78](../../agent_chatui/src/hooks/use-file-upload.tsx#L49-L78)；
+  每个文件整体读为 Data URL：
+  [agent_chatui/src/lib/multimodal-utils.ts:L45-L54](../../agent_chatui/src/lib/multimodal-utils.ts#L45-L54)；
+  内容块直接并入消息提交：
+  [agent_chatui/src/components/thread/index.tsx:L199-L218](../../agent_chatui/src/components/thread/index.tsx#L199-L218)。
+- **影响**：大文件或大量文件会放大浏览器内存、JSON/网络负载、线程存储和模型
+  Token/费用；MIME 仅由客户端提供，无法形成可信内容边界。
+- **建议**：定义数量、单文件、总大小、解析后大小、类型与
+  保留策略；服务端重新验证，优先对象引用/分块上传而不是在线程中嵌入完整 Base64。
+- **依赖**：`AUD-001`、`DEC-004`。
+- **可验证完成条件**：所有入口对边界值一致执行限制；伪造 MIME、压缩炸弹、超大、
+  超量、重复和取消上传测试均有确定结果，内存与请求体保持在定义预算内。
+
+#### AUD-009：健康端点无条件成功却被当作 readiness
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：`/api/health` 无条件返回成功：
+  [data_agent/agent_server.py:L110-L113](../../data_agent/agent_server.py#L110-L113)；
+  Compose 用它判断 FastAPI 可接流量：
+  [docker-config/docker-compose.yml:L87-L121](../../docker-config/docker-compose.yml#L87-L121)。
+- **反证边界**：应用生命周期先运行 `init_db()`，因此启动阶段的数据库或迁移失败
+  会阻止健康端点可用；本问题不把这类启动失败计为误报。
+- **影响**：应用启动后，运行期 MySQL 断连、Redis 持续降级或关键 Agent 配置无效
+  时，编排层仍会把实例标记为 ready；故障会转移到用户请求并掩盖依赖状态。
+- **建议**：拆分 liveness 与 readiness；readiness 验证迁移 revision、
+  必需配置和 MySQL，Redis 是否阻断由 `RR-006` 明确，模型/搜索使用独立浅探针。
+- **依赖**：`AUD-014`、`RR-006`。
+- **可验证完成条件**：进程活着但运行期数据库不可达、迁移 revision 异常或必要
+  配置无效时 liveness 保持可诊断而 readiness 失败；恢复后 readiness 自动转绿
+  且不调用付费外部服务。
+
+#### AUD-017：bcrypt 72 字节截断边界未校验
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：注册只检查密码字符数下限，没有 UTF-8 字节上限：
+  [data_agent/routes/auth.py:L39-L44](../../data_agent/routes/auth.py#L39-L44)；
+  当前使用 bcrypt/Passlib：
+  [data_agent/services/auth_service.py:L20-L21](../../data_agent/services/auth_service.py#L20-L21)，
+  并锁定 bcrypt 4.0.1：
+  [requirements.txt:L2-L2](../../requirements.txt#L2-L2)。
+- **影响**：超过 bcrypt 有效输入边界的不同密码可能按相同前缀验证，Unicode 下
+  字符数与字节数差异还会让行为不透明。
+- **建议**：注册与登录统一按 UTF-8 字节校验并拒绝超界输入，或迁移到
+  Argon2id；发布前定义兼容已有哈希的渐进重哈希策略。
+- **依赖**：无。
+- **可验证完成条件**：71/72/73 字节、多字节字符和长密码测试具有明确一致语义；
+  不允许两个只在截断边界后不同的密码互相认证，旧账户可按迁移策略继续登录。
+
+#### AUD-016：管理员并发交叉降级可清空管理员集合
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：服务只禁止管理员修改自己：
+  [data_agent/services/admin_service.py:L69-L83](../../data_agent/services/admin_service.py#L69-L83)；
+  对目标用户直接赋值并提交，没有“至少一名管理员”事务不变量或锁：
+  [data_agent/services/admin_service.py:L85-L106](../../data_agent/services/admin_service.py#L85-L106)。
+- **影响**：两名管理员可并发互相降级，最终没有管理员，导致治理面锁死且只能通过
+  数据库或人工引导恢复。
+- **建议**：在数据库事务中锁定管理员集合/目标行并强制最后管理员不变量；
+  对高风险角色变更考虑二次确认或恢复账户，保持审计事件。
+- **依赖**：无。
+- **可验证完成条件**：双管理员并发交叉降级压力测试中最多一项成功，提交后始终
+  至少一名管理员；死锁/重试结果稳定，拒绝和成功均可按请求 ID 追踪。
+
+#### AUD-012：审计身份 HMAC 与 JWT 签名共用密钥
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：审计 actor/target 引用直接取 JWT 签名密钥作为 HMAC 密钥：
+  [data_agent/observability/audit.py:L12-L23](../../data_agent/observability/audit.py#L12-L23)。
+- **影响**：认证密钥轮换会改变历史身份引用并破坏跨期关联；审计用途泄露也扩大为
+  Token 伪造风险，两个安全域无法独立轮换和授权。
+- **建议**：引入独立审计 HMAC 密钥与版本号，通过密钥管理系统分权；
+  轮换期支持当前/前一版本解析或明确断代，不在日志中写入密钥标识之外的信息。
+- **依赖**：无。
+- **可验证完成条件**：JWT 与审计密钥可独立轮换；JWT 轮换不改变审计引用，审计
+  轮换按版本策略可解释；配置缺失时 fail-closed 且测试日志不含原始身份。
+
+#### AUD-010：第一方会话/消息与前端线程历史缺少完整分页
+
+- **严重度 / 信心**：**P2 / 2/2 高置信度**。
+- **证据**：会话列表和消息列表都直接 `.all()`：
+  [data_agent/services/session_service.py:L40-L45](../../data_agent/services/session_service.py#L40-L45)、
+  [data_agent/services/session_service.py:L104-L109](../../data_agent/services/session_service.py#L104-L109)；
+  LangGraph 线程搜索固定取前 100 条且无继续游标：
+  [agent_chatui/src/providers/Thread.tsx:L32-L43](../../agent_chatui/src/providers/Thread.tsx#L32-L43)。
+- **影响**：历史增长后会造成数据库、API、浏览器内存和首屏延迟无界增长；超过
+  100 条的 LangGraph 线程静默不可见，两个历史体系的语义进一步分叉。
+- **建议**：统一主数据源；采用稳定排序的游标分页、硬上限
+  和前端增量加载。原 `AUD-013` 的前端线程分页已并入本项。
+- **依赖**：`DEC-001`。
+- **可验证完成条件**：超过单页上限的会话、消息和线程可无遗漏、无重复地遍历；
+  并发新增时顺序稳定，服务端强制上限，前端能继续加载并清晰表示结束状态。
+
+### 4.4 P3
+
+#### AUD-018：限流身份摘要可对低熵 ID/IP 枚举反查
+
+- **严重度 / 信心**：**P3 / 2/2 高置信度**。
+- **证据**：身份原文是低熵用户 ID 或客户端 IP：
+  [data_agent/observability/rate_limit_middleware.py:L102-L109](../../data_agent/observability/rate_limit_middleware.py#L102-L109)；
+  Redis 键使用无密钥 SHA-256 截断摘要：
+  [data_agent/services/rate_limit_service.py:L68-L78](../../data_agent/services/rate_limit_service.py#L68-L78)。
+- **影响**：能读取 Redis 键空间的主体可离线枚举常见 IP/用户 ID，削弱“不记录
+  原始身份”的隐私承诺；当前诊断事件不输出该摘要，风险低于直接明文，但 Redis
+  键并非不可关联匿名化。
+- **建议**：使用独立、可轮换的 HMAC 密钥生成限流摘要，并限制 Redis 键空间访问；
+  不要与 JWT 或审计密钥复用。
+- **依赖**：无；与 `AUD-012` 的独立密钥治理协同。
+- **可验证完成条件**：已知用户 ID/IP 无法在无密钥条件下复算键；密钥轮换和窗口
+  行为有测试，日志/错误/诊断不输出原始身份或可逆映射。
+
+### 4.5 21 候选 × 2 验证者矩阵
+
+下表保存 Task 3 的完整候选覆盖。每个 Validator 单元各自显式列出 `exists`、
+`severity`、`reason` 和原始 `corrected_evidence`，共 **21 × 2 = 42 条独立记录**；
+即使 A、B 的校正证据相同，也分别写入各自单元，不依赖共享证据列。原始
+`severity` 保留验证者返回的 P1/P2/P3 或 `false_positive`；`evidence` 将各自原始
+`corrected_evidence` 转为等价链接。最终 P0-P3 是依据本 Spec 定义作出的独立裁决，
+不改写验证者原始建议。
+
+| 候选 | Validator A | Validator B | 最终动作 |
+|---|---|---|---|
+| `AUD-001` | `exists=true`<br>`severity=P1`<br>`reason=公开 Agent 入口未贯穿第一方身份。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | `exists=true`<br>`severity=P1`<br>`reason=线程检索缺少主体所有权条件。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | 保留，Spec 裁决 `P0`。 |
+| `AUD-002` | `exists=true`<br>`severity=P1`<br>`reason=默认工具接受调用方本地路径。`<br>`evidence=`[document_analysis:L21-L43](../../data_agent/tools/document_analysis.py#L21-L43) | `exists=true`<br>`severity=P1`<br>`reason=未见允许根、所有权或符号链接约束。`<br>`evidence=`[document_analysis:L21-L43](../../data_agent/tools/document_analysis.py#L21-L43) | 保留，Spec 裁决 `P0`。 |
+| `AUD-003` | `exists=true`<br>`severity=P1`<br>`reason=查询参数可改变携带 Key 的目标 URL。`<br>`evidence=`[Thread:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40) | `exists=true`<br>`severity=P1`<br>`reason=持久化 Key 可被发送到非信任 Origin。`<br>`evidence=`[Thread:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40) | 保留，Spec 裁决 `P0`。 |
+| `AUD-004` | `exists=true`<br>`severity=P1`<br>`reason=异步路由执行同步图调用。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | `exists=true`<br>`severity=P1`<br>`reason=递归、并发、Token、工具和输出预算不完整。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | 保留，Spec 裁决 `P1`；临时资源边界并入本项。 |
+| `AUD-005` | `exists=true`<br>`severity=P2`<br>`reason=上传仅按客户端 MIME/重复项筛选。`<br>`evidence=`[use-file-upload:L47-L78](../../agent_chatui/src/hooks/use-file-upload.tsx#L47-L78) | `exists=true`<br>`severity=P2`<br>`reason=文件整体 Base64 并入线程且无总量预算。`<br>`evidence=`[use-file-upload:L47-L78](../../agent_chatui/src/hooks/use-file-upload.tsx#L47-L78) | 保留，Spec 裁决 `P2`。 |
+| `AUD-006` | `exists=true`<br>`severity=P2`<br>`reason=Python 直接依赖大多未固定且无哈希锁。`<br>`evidence=`[requirements:L1-L28](../../requirements.txt#L1-L28) | `exists=true`<br>`severity=P2`<br>`reason=包与安装契约不可重复。`<br>`evidence=`[requirements:L1-L28](../../requirements.txt#L1-L28) | 保留，Spec 裁决 `P2`；吸收 `AUD-021`。 |
+| `AUD-007` | `exists=true`<br>`severity=P1`<br>`reason=只见 users 表即可 stamp 固定基线。`<br>`evidence=`[database:L107-L114](../../data_agent/config/database.py#L107-L114) | `exists=true`<br>`severity=P1`<br>`reason=未知或漂移 schema 可被误认兼容。`<br>`evidence=`[database:L94-L114](../../data_agent/config/database.py#L94-L114) | 保留，Spec 裁决 `P1`。 |
+| `AUD-008` | `exists=true`<br>`severity=P1`<br>`reason=Redis 故障后限流永久 fail-open。`<br>`evidence=`[rate_limit_service:L134-L142](../../data_agent/services/rate_limit_service.py#L134-L142) | `exists=true`<br>`severity=P1`<br>`reason=无重连或探活恢复路径。`<br>`evidence=`[rate_limit_service:L57-L109](../../data_agent/services/rate_limit_service.py#L57-L109) | 保留，Spec 裁决 `P1`。 |
+| `AUD-009` | `exists=true`<br>`severity=P2`<br>`reason=健康端点无条件成功。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | `exists=true`<br>`severity=P2`<br>`reason=该端点不能证明服务可处理业务请求。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | 保留，Spec 裁决 `P2`。 |
+| `AUD-010` | `exists=true`<br>`severity=P2`<br>`reason=会话和消息列表直接全量读取。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | `exists=true`<br>`severity=P2`<br>`reason=历史增长会形成无界响应和内存压力。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | 保留，Spec 裁决 `P2`；吸收 `AUD-013`。 |
+| `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 保留，Spec 裁决 `P2`。 |
+| `AUD-012` | `exists=true`<br>`severity=P2`<br>`reason=审计 HMAC 直接复用 JWT 密钥。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | `exists=true`<br>`severity=P2`<br>`reason=两个安全用途不能独立授权和轮换。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | 保留，Spec 裁决 `P2`。 |
+| `AUD-013` | `exists=true`<br>`severity=P2`<br>`reason=前端线程搜索固定只取 100 条。`<br>`evidence=`[Thread:L32-L42](../../agent_chatui/src/providers/Thread.tsx#L32-L42) | `exists=true`<br>`severity=P2`<br>`reason=没有继续分页，超限线程静默不可见。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | 存在性 2/2；作为同一分页根因合并到 `AUD-010`，不重复计数。 |
+| `AUD-014` | `exists=true`<br>`severity=P1`<br>`reason=后端镜像没有复制迁移资源。`<br>`evidence=`[Dockerfile:L10-L18](../../data_agent/Dockerfile#L10-L18) | `exists=true`<br>`severity=P1`<br>`reason=FastAPI 启动立即需要这些资源。`<br>`evidence=`[Dockerfile:L10-L15](../../data_agent/Dockerfile#L10-L15) | 保留，Spec 裁决 `P0`。 |
+| `AUD-015` | `exists=true`<br>`severity=P2`<br>`reason=凭据扫描只覆盖固定文件和三个前缀。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | `exists=true`<br>`severity=P2`<br>`reason=其他受跟踪文本可绕过内容扫描。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | 保留，Spec 裁决 `P2`。 |
+| `AUD-016` | `exists=true`<br>`severity=P2`<br>`reason=角色变更未保护最后管理员不变量。`<br>`evidence=`[admin_service:L85-L106](../../data_agent/services/admin_service.py#L85-L106) | `exists=true`<br>`severity=P2`<br>`reason=并发交叉降级可产生零管理员。`<br>`evidence=`[admin_service:L69-L85](../../data_agent/services/admin_service.py#L69-L85) | 保留，Spec 裁决 `P2`。 |
+| `AUD-017` | `exists=true`<br>`severity=P2`<br>`reason=注册只校验字符数下限。`<br>`evidence=`[auth route:L39-L44](../../data_agent/routes/auth.py#L39-L44) | `exists=true`<br>`severity=P2`<br>`reason=bcrypt 72 字节边界没有明确输入语义。`<br>`evidence=`[auth route:L39-L44](../../data_agent/routes/auth.py#L39-L44) | 保留，Spec 裁决 `P2`。 |
+| `AUD-018` | `exists=true`<br>`severity=P3`<br>`reason=限流键对低熵主体使用无密钥摘要。`<br>`evidence=`[rate_limit_service:L68-L78](../../data_agent/services/rate_limit_service.py#L68-L78) | `exists=true`<br>`severity=P3`<br>`reason=有 Redis 访问权时可枚举复算。`<br>`evidence=`[rate_limit_service:L68-L78](../../data_agent/services/rate_limit_service.py#L68-L78) | 保留；Spec 裁决 `P3`。 |
+| `AUD-019` | `exists=false`<br>`severity=false_positive`<br>`reason=localhost 是可覆盖的本地开发构建参数。`<br>`evidence=`[Dockerfile:L12-L17](../../agent_chatui/Dockerfile#L12-L17) | `exists=false`<br>`severity=false_positive`<br>`reason=本地 Compose 默认值不能证明生产配置错误。`<br>`evidence=`[compose:L160-L168](../../docker-config/docker-compose.yml#L160-L168) | 0/2 排除；本地部署边界归入 `RR-003`。 |
+| `AUD-020` | `exists=true`<br>`severity=P2`<br>`reason=前端没有 test 脚本或第一方测试套件。`<br>`evidence=`[package:L16-L24](../../agent_chatui/package.json#L16-L24) | `exists=true`<br>`severity=P2`<br>`reason=关键用户流程缺少行为回归保护。`<br>`evidence=`[package:L16-L24](../../agent_chatui/package.json#L16-L24) | 保留，Spec 裁决 `P2`。 |
+| `AUD-021` | `exists=true`<br>`severity=P2`<br>`reason=基础镜像和 Actions 使用可移动标签。`<br>`evidence=`[compose:L47-L72](../../docker-config/docker-compose.yml#L47-L72) | `exists=true`<br>`severity=P2`<br>`reason=构建供应链未固定到不可变 digest/SHA。`<br>`evidence=`[Dockerfile:L1-L1](../../data_agent/Dockerfile#L1-L1) | 存在性 2/2；作为供应链可重复性子项合并到 `AUD-006`，不重复计数。 |
+
+矩阵汇总：`AUD-001..018`（除合并项外）和 `AUD-020` 形成 18 个最终问题，
+全部为 2/2 高置信度；`AUD-013`、`AUD-021` 也是 2/2，但分别合并；`AUD-019`
+两者均为 `false`。因此 21 个候选的 42 条验证记录完整，最终问题数仍为 18。
+
+## 5. 开放决策与风险接受
+
+### 5.1 开放决策
+
+| ID | 必须作出的决定 | 当前约束 / 退出条件 |
+|---|---|---|
+| **DEC-001** | MySQL 会话消息还是 LangGraph threads 作为对话主数据源。 | 需定义 ID 映射、所有权、分页、保留和迁移；决定前不能声称两套历史一致。 |
+| **DEC-002** | LangGraph 采用 FastAPI 同源代理、自定义 Auth，还是独立网关。 | 方案必须传播第一方主体、服务端校验线程所有权，并消除浏览器任意 Origin 携带 Key。 |
+| **DEC-003** | 继续严格 local-only，还是支持网络化多用户部署。 | 若选择后者，P0 认证边界、端口暴露、TLS、密钥管理、备份和运行监控先成为发布前置条件。 |
+| **DEC-004** | 文件使用对象存储、每用户隔离工作区，还是完全不落盘。 | 必须同步确定类型/大小、所有权、保留、删除、脱敏、恶意内容扫描和模型外发策略。 |
+| **DEC-005** | `utils/` 删除、归档独立仓库，还是正式纳入主项目治理。 | 已确认主应用未导入 `utils/`；正式纳入前需补依赖锁、测试、所有者、安全审查和发布边界，删除/归档则需确认无仓外消费者。 |
+
+### 5.2 风险接受登记
+
+| ID | 当前接受范围 | 重新评审触发器 |
+|---|---|---|
+| **RR-001** | MySQL/Redis 当前只有持久卷；无自动备份、加密、恢复演练及已批准 RPO/RTO。仅可用于可重建或受控数据。 | 保存不可重建数据、远程部署或发布给多用户前。 |
+| **RR-002** | 已失效旧凭据仍可能存在 Git 历史；当前不在业务迭代中擅自重写共享历史。 | 发现凭据仍有效、仓库可见性扩大，或协作者批准协调重写时。 |
+| **RR-003** | Compose 宿主端口暴露只按 local-only 接受。 | 监听非回环地址、部署到共享主机/云网络或选择 `DEC-003` 的网络化模式时。 |
+| **RR-004** | Python 执行默认关闭；一旦启用，当前本机子进程不是沙箱。 | 任何环境准备启用时，必须先决定永久禁用或放入无凭据、无宿主挂载的隔离执行器。 |
+| **RR-005** | 审计/诊断是本地有界轮转日志，不是不可变长期审计、SIEM 或合规留存。 | 出现合规、取证、集中告警、跨实例关联或长期保留要求时。 |
+| **RR-006** | 单实例固定窗口限流在 Redis 故障时 fail-open。 | 网络化、多实例、付费高成本入口或攻击面扩大时；同时解决 `AUD-008` 的自动恢复。 |
+
+所有风险接受都必须有责任人、复审日期和部署范围；表中描述的是当前技术边界，
+不是对生产风险的永久豁免。
+
+## 6. 发布判断
+
+### 6.1 结论
+
+**生产发布：NO-GO。** 18 个 2/2 高置信度问题按 Spec 最终裁决为 **4 个 P0、
+3 个 P1、10 个 P2、1 个 P3**。P0 包含当前后端镜像迁移资源缺失、AI 对话身份/
+所有权断层、浏览器 Key 外发和任意本地文件读取；P1 包含无端到端执行预算、旧库
+盲 stamp 和 Redis 永久降级。任一项都不能由 155 项测试、Compose 静态解析或
+绿色 Hosted CI 抵消。
+
+**本地开发与受控审计：有条件继续。** 可在不使用真实业务数据、不开启 Python
+执行、不暴露到非受控网络、使用已隔离测试凭据和可重建数据的前提下继续开发；
+这不是五服务本轮已运行的声明，也不是生产批准。
+
+### 6.2 放行门槛
+
+1. 关闭全部 P0 和 P1，并按各问题的可验证完成条件取得代码、自动化测试和运行证据。
+2. 对 P2/P3 逐项关闭，或形成有责任人、期限、部署范围与补偿控制的书面风险接受；
+   `AUD-011` 的容器证据和 `AUD-020` 的前端行为基线不得仅靠人工口头接受。
+3. 对 `DEC-001..005` 给出记录化决策，尤其统一 AI 身份/线程边界与 `utils/` 归属。
+4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
+   构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
+   隔离、恢复、并发与故障验证。
+5. 发布证据继续区分本地、Hosted CI 和未验证项；不得复制敏感原文，也不得以
+   静态检查、历史运行或候选设计冒充当前通过。

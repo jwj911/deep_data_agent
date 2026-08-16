@@ -339,8 +339,10 @@ LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息
 
 ## 发布文档
 
-- `.trae/documents/project_analysis.md`：当前架构、能力边界、质量状态与技术债。
-- `.trae/documents/roadmap.md`：已完成里程碑和后续候选迭代。
+- `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
+  18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）、证据边界与发布判断。
+- `.trae/documents/roadmap.md`：7 个已完成 change-id 和 12 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
+- `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
   脱敏审计规格。
