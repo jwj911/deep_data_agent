@@ -5,6 +5,34 @@
 
 ## [Unreleased]
 
+### 恢复运行时发布门禁（2026-08-16，本地完成）
+
+- `restore-runtime-release-gates` 已按当前工作树的本地证据标为第 8 个已完成
+  change-id；Roadmap 余下 11 个未启动候选继续按风险驱动排序。
+- 后端镜像现包含 `alembic.ini` 和完整 `migrations/` 运行资产；发布契约新增镜像
+  资产检查，并将凭据内容扫描扩展到全部 Git 跟踪文本和非忽略的待提交文本，同时
+  保持二进制跳过、允许样例及错误输出脱敏。
+- GitHub Actions 新增独立 Container Smoke Job，从目标 SHA 的干净 checkout
+  构建前后端镜像，验证空库、已在 head 和已知旧基线三类 MySQL 状态，并在失败时
+  只输出有界脱敏诊断、无条件清理容器资源和临时配置。
+- Python 3.12.9 下 `python -m pytest -q` 共 **189 项通过**，
+  `tests/test_migrations.py` 迁移定向测试 **7 项通过**；isort、发布契约、Alembic
+  单 head/升级、Compose 解析和差异检查通过。
+- Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、
+  `format:check` 和 `build` 均通过，前端任务生成物已清理。
+- Docker Linux Engine 从当前源码重建镜像后，MySQL、Redis、FastAPI、LangGraph、
+  Frontend 五服务均健康；FastAPI `/api/health`、LangGraph `/info`、Frontend
+  `/data_copilot/` 三个 HTTP 端点通过。空库到达唯一 head `8f3c1b7a2d4e`，
+  head 重启 canary 保持不变，已知旧基线升级后 canary 保持且角色回填为 `user`。
+- 本地容器验收只使用专用假配置与不可外连的模型地址，不发送业务查询，未调用真实
+  模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置和生成物已完整清理。
+- 历史审计仍识别 18 个 2/2 高置信度问题；当前工作树关闭 `AUD-014`、`AUD-011`
+  和 `AUD-015`，开放项变为 **15 个：3 P0 / 3 P1 / 8 P2 / 1 P3**。生产发布仍为
+  **NO-GO**，`AUD-006` 的可重复供应链、`AUD-007` 的未知 schema fail-closed 与
+  其他既有边界均未扩大。
+- 新增 Hosted Container Smoke 尚未随当前工作树推送，目标 SHA 的该 Job 为
+  **待推送验证**；本文不把工作流定义或本地等价证据写成 Hosted 已通过。
+
 ### 项目整体审计（2026-08-12，2026-08-16 交付复核）
 
 - 本轮以 `main` @ `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为锁定基线，
@@ -25,14 +53,15 @@
 - 去重与排除结果为：`AUD-013` 合并到 `AUD-010`，`AUD-021` 合并到 `AUD-006`；
   `AUD-019` 因 0/2 确认而排除，不进入问题清单或 Roadmap；项目分析附录保存了
   21 个候选的 42 条验证者存在性、原始 severity、理由、校正证据和最终动作。
-- Roadmap 将发现映射为 **12 个未启动后续候选**：
+- 审计当时的 Roadmap 将发现映射为 **12 个未启动后续候选**：
   `restore-runtime-release-gates`、`stabilize-delivery-baseline`、
   `secure-agent-tenant-boundaries`、`isolate-file-ingestion`、
   `bound-agent-resource-use`、`prove-data-recovery`、
   `harden-identity-administration`、`paginate-session-history`、
   `deliver-data-analysis-reports`、`rewrite-credential-history`、
   `define-production-hosting-boundary` 和 `persist-compliance-audit-records`。
-  这些条目均为候选，不代表已经实现、启动或取得验收证据。
+  这些条目在审计时均为候选，不代表当时已经实现、启动或取得验收证据；当前状态
+  以本节上方的运行时发布门禁记录为准。
 - 本轮仅更新审计、Roadmap 与治理记录，无运行时代码、测试、依赖或部署配置变化。
   本轮未取得 Docker 五服务实际启动、容器内迁移或真实模型、搜索、业务数据等外部
   服务证据；Hosted CI 和静态 Compose 检查不能替代这些证据。

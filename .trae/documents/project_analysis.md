@@ -19,24 +19,26 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 状态 | 含义 |
 |---|---|
 | **已实现** | 当前基线代码或配置中存在该能力；不自动代表本轮运行成功。 |
-| **已验证** | Task 1 在锁定基线上实际执行了确定性检查并取得通过结果。 |
+| **已验证** | 在明确的审计基线或当前工作树上实际执行检查并取得通过结果；本地与 Hosted 证据分别标注。 |
 | **未验证** | 本轮没有取得运行证据，不能用代码存在、静态解析或历史结果代替。 |
 | **候选** | 审计建议、开放决策或后续路线，不是当前已经交付的能力。 |
 
-### 1.2 锁定基线
+### 1.2 锁定基线与当前工作树
 
-| 项目 | Task 1 与交付复核证据 |
+| 项目 | 审计与当前工作树证据 |
 |---|---|
 | 日期与版本 | 2026-08-12，分支 `main`，完整 HEAD `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`。审计开始前该已推送 HEAD 的工作区干净。 |
 | 交付前复核 | 2026-08-16 在同一运行时代码基线上重跑后端、前端、发布契约、Compose 解析与差异检查；两名新的独立验证者逐项确认全部 18 个最终问题，结论仍为 18/18 均 2/2 高置信度。复核只收紧证据边界，不改变严重度、问题数或 Roadmap 映射。 |
-| 收口工作区 | 本次收口实际 `git status --short` 为 5 个治理文档已修改：`.trae/documents/project_analysis.md`、`.trae/documents/roadmap.md`、`README.md`、`AGENTS.md`、`CHANGELOG.md`；另有本规格目录 `.trae/specs/audit-project-roadmap/` 未跟踪（`spec.md`、`tasks.md`、`checklist.md`）。没有运行时代码、测试、依赖或配置改动；规格目录自身的新增/勾选属于本轮审计记录，不计为代码污染。 |
-| 已完成规格 | `establish-runnable-baseline`、`secure-user-sessions`、`enforce-release-readiness`、`add-observability-diagnostics`、`add-request-rate-limiting`、`add-versioned-migrations`、`add-rbac-audit` 的任务与清单均已完成。 |
-| 后端本地证据 | Python 3.12.9；`pytest -q` 共 **155 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
-| 前端本地证据 | `typecheck`、零警告 `lint`、`format:check`、`build` 通过，任务生成物已清理。 |
-| 前端本机版本复核 | 本次实际执行 `node --version`：仓库根目录与 `agent_chatui/` 均为 `v25.2.1`；执行 `pnpm --version`：仓库根目录为 `10.33.2`，`agent_chatui/` 内为 `10.5.1`。本机入口是 npm 全局安装的 `pnpm@10.33.2`，且无可用 `corepack` 命令；进入前端目录后的版本切换是 pnpm 自身按 [`packageManager: pnpm@10.5.1`](../../agent_chatui/package.json#L94) 解析。Task 1 的 `10.5.1` 与独立验证者的 `10.33.2` 分别与本次前端目录和仓库根目录的实测结果一致。 |
-| 前端版本契约 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`；本机在前端目录运行 pnpm 命令实际警告 `Unsupported engine`，并报告当前 Node `v25.2.1`、pnpm `10.5.1`，故本机 Node 25 不属于受支持版本。Hosted CI 显式设置 [pnpm `10.5.1` 与 Node 22](../../.github/workflows/release-readiness.yml#L51-L63)，目标 run 的 Frontend Job 成功；工作流只固定 Node 主版本，本文不推断其精确补丁版本。 |
-| Hosted CI 证据 | 目标 SHA 对应 GitHub Actions run `31554712031` 成功；Backend、Frontend、Release Contracts 三个 Job 均成功。 |
-| 明确缺口 | **未验证** Docker 五服务本轮实际启动与容器内迁移；未调用真实模型、真实搜索或真实业务数据；未执行浏览器行为/E2E、备份恢复、故障注入、容量或并发压测。Hosted CI 也未补齐这些运行证据。 |
+| 审计收口工作区 | 审计收口只修改 5 个治理文档及 `.trae/specs/audit-project-roadmap/`，没有运行时代码、测试、依赖或配置改动。该记录描述历史审计收口，不是当前工作树状态。 |
+| 当前工作树 | `restore-runtime-release-gates` 补齐后端镜像迁移资产、全 Git 文本凭据扫描、Container Smoke 工作流、容器验证脚本及确定性测试，并同步本报告、Roadmap、README、AGENTS、CHANGELOG 与 tasks。 |
+| Roadmap 状态 | 既有 7 个已完成 change-id，加上当前以本地证据完成的 `restore-runtime-release-gates`，共 8 个；余下 11 个未启动候选。新增 Hosted Container Smoke 尚未推送，仍须绑定目标 SHA 验证。 |
+| 后端本地证据 | Python 3.12.9；`pytest -q` 共 **189 项通过**，其中 `tests/test_migrations.py` 迁移定向测试 **7 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
+| 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check`、`build` 通过，任务生成物已清理。 |
+| 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
+| 本地容器证据 | Docker Linux Engine 从当前源码重建前后端镜像；MySQL、Redis、FastAPI、LangGraph、Frontend 五服务健康，FastAPI `/api/health`、LangGraph `/info`、Frontend `/data_copilot/` 三个 HTTP 端点通过。空库到达唯一 head `8f3c1b7a2d4e`；head 重启保持用户、会话、消息 canary；已知旧基线升级后 canary 保持且角色回填为 `user`。 |
+| 外部调用与清理 | 容器验收只使用专用假配置和不可外连的模型地址，不发送业务查询，未调用真实模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置及前端生成物已完整清理。 |
+| Hosted CI 证据 | 审计目标 SHA 的 run `31554712031` 中 Backend、Frontend、Release Contracts 三个 Job 成功。当前工作树新增 Container Smoke Job，但尚未推送；该新 Job 为**待推送验证**，不能记为 Hosted 已通过。 |
+| 明确缺口 | 未执行真实模型/搜索/业务数据调用、浏览器行为/E2E、生产备份恢复、容量或并发压测；`AUD-006` 的可重复供应链和 `AUD-007` 的未知 schema fail-closed 未由本轮关闭。 |
 
 ### 1.3 共识方法与严重度
 
@@ -48,11 +50,13 @@ Task 3 对候选发现执行两名独立验证者复核。本报告只保留双�
 - **P2**：限制可维护性、可恢复性、扩展性或业务迭代，但存在受控绕行。
 - **P3**：低风险改进或文档/体验缺口，不应阻塞更高优先级工作。
 
-最终裁决为 **4 个 P0、3 个 P1、10 个 P2、1 个 P3**。存在性仍为 18 个
+审计最终裁决为 **4 个 P0、3 个 P1、10 个 P2、1 个 P3**。存在性仍为 18 个
 2/2 高置信度问题；严重度由本 Spec 定义最终裁决，不反写验证者原始的 P1/P2
 建议。去重结果为：`AUD-013` 合并到 `AUD-010`，`AUD-021` 合并到 `AUD-006`；
 `AUD-019` 为 0/2，不进入问题与路线判断。完整 21 候选 × 2 验证者矩阵见第 4.5 节。
-问题中的修复方案均为**候选**，不应解读为已实现或已验证。
+当前工作树关闭 `AUD-014`、`AUD-011`、`AUD-015`；历史审计记录不删除，当前开放
+项为 **15 个：3 P0、3 P1、8 P2、1 P3**。其余问题中的修复方案仍为**候选**，
+不应解读为已实现或已验证。
 
 ### 1.4 已审查且无独立问题的范围
 
@@ -163,9 +167,11 @@ Compose **已实现** MySQL、Redis、FastAPI、LangGraph、Frontend 五个服�
 [FastAPI](../../docker-config/docker-compose.yml#L87-L121)、
 [LangGraph](../../docker-config/docker-compose.yml#L123-L158)、
 [Frontend](../../docker-config/docker-compose.yml#L160-L175)。
-这只证明编排意图；本轮**未验证**五服务实际运行。MySQL 保存第一方用户、会话和
-消息，Redis 同时承担 Agent/搜索缓存与 FastAPI 固定窗口限流。LangGraph 线程是
-独立持久化语义，尚未与 MySQL 会话建立单一主数据契约，属于 `DEC-001`。
+当前工作树已用专用假配置从源码重建镜像并验证五服务健康、三个非业务 HTTP 端点、
+容器内唯一 migration head、head canary 与已知旧基线升级；没有发送业务查询或
+调用外部服务。MySQL 保存第一方用户、会话和消息，Redis 同时承担 Agent/搜索缓存
+与 FastAPI 固定窗口限流。LangGraph 线程是独立持久化语义，尚未与 MySQL 会话建立
+单一主数据契约，属于 `DEC-001`。
 
 ### 2.3 遗留模块边界
 
@@ -180,47 +186,51 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 
 | 能力 | 已验证证据边界 |
 |---|---|
-| 第一方认证、会话所有权与固定 RBAC | 155 项后端确定性测试覆盖 JWT 配置、注册登录、会话隔离、默认拒绝、管理员 API 与脱敏审计；这不扩展到 LangGraph 对话平面。 |
-| 版本化迁移 | 本地 Alembic 单 head、空库升级、模型/迁移一致性测试通过；不代表当前后端镜像携带迁移资源，也未做生产数据恢复演练。 |
+| 第一方认证、会话所有权与固定 RBAC | 189 项后端确定性测试覆盖 JWT 配置、注册登录、会话隔离、默认拒绝、管理员 API 与脱敏审计；这不扩展到 LangGraph 对话平面。 |
+| 版本化迁移 | 7 项迁移定向测试覆盖 Alembic 单 head、空库升级、模型/迁移一致性；本地容器另验证空库、head 幂等和已知旧基线升级。未知或漂移 schema 及生产恢复仍见 `AUD-007`、`RR-001`。 |
 | 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
 | FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
 | 前端静态质量门禁 | typecheck、Lint、格式和生产构建通过；没有行为测试，见 `AUD-020`。 |
-| 本地与 Hosted 发布门禁 | 本地后端/前端/契约检查通过，目标 SHA 的三个 Hosted Job 成功；工作流没有容器运行证据，见 `AUD-011`。 |
+| 本地与 Hosted 发布门禁 | 当前工作树本地后端、前端、契约及五服务容器门禁通过；历史目标 SHA 的三个既有 Hosted Job 成功。新增 Hosted Container Smoke 待推送验证，不提前记为通过。 |
 
 ### 3.2 已实现但本轮未验证
 
-- Compose 中存在五服务、端口、卷、健康检查和依赖顺序，**未运行五服务**。
 - 模型、搜索和文档工具调用代码存在，**未使用真实外部服务或真实业务数据调用**。
 - Redis 降级、Docker 日志轮转和服务健康配置存在，未做本轮故障注入、恢复或容量验证。
 - Python 代码执行默认关闭；关闭状态是配置能力，不证明启用后的隔离安全。
+- 新增 Hosted Container Smoke 工作流已实现但尚未推送，当前目标 SHA 没有该新
+  Job 的 Hosted 运行结果。
 
 ### 3.3 候选而非现状
 
-18 个问题的修复条件、`DEC-001..005` 的目标选择、长期监控/SIEM、备份恢复、
-对象存储、容器 Hosted 冒烟和浏览器 E2E 都是候选。除非对应代码、测试与运行证据
+当前开放 15 个问题的修复条件、`DEC-001..005` 的目标选择、长期监控/SIEM、
+生产备份恢复、对象存储和浏览器 E2E 都是候选。除非对应代码、测试与运行证据
 进入新基线，不得在 README、Roadmap 或发布说明中标为已完成。
 
-## 4. 问题清单
+## 4. 问题清单：历史 18 项，当前开放 15 项
 
-### 4.1 P0
+本节保留审计时 18 个问题的证据链。标注“当前工作树已关闭”的 3 项不再计入开放
+统计；其余 15 项仍按原 severity 开放。
+
+### 4.1 P0（当前开放 3 项，另有 1 项已关闭）
 
 #### AUD-014：后端镜像缺失 Alembic 迁移资源
 
 - **严重度 / 信心**：**P0 / 2/2 高置信度**。
-- **证据**：镜像只复制依赖、`data_agent/` 和 `langgraph.json`，未复制
+- **当前状态**：**当前工作树已关闭（本地证据）**；新增 Hosted Container Smoke
+  待推送验证。
+- **历史审计证据**：镜像只复制依赖、`data_agent/` 和 `langgraph.json`，未复制
   `alembic.ini` 与 `migrations/`：
   [data_agent/Dockerfile:L10-L14](../../data_agent/Dockerfile#L10-L14)；
   运行时却按项目根目录解析这两项资源：
   [data_agent/config/database.py:L15-L20](../../data_agent/config/database.py#L15-L20)，
   且 FastAPI 启动立即调用迁移：
   [data_agent/agent_server.py:L19-L23](../../data_agent/agent_server.py#L19-L23)。
-- **影响**：当前镜像契约与启动契约冲突；FastAPI 容器可能在应用可用前失败，
-  Compose 静态解析和宿主机测试无法证明镜像可启动。
-- **建议**：将迁移配置与版本目录纳入后端镜像，固定工作目录和非 root 运行用户；
-  与 `AUD-006` 的可重复构建及 `AUD-011` 的容器 CI 一并处理。
-- **依赖**：无；修复可立即开始，关闭证据与 `AUD-006`、`AUD-011` 联动。
-- **可验证完成条件**：从干净上下文构建镜像；分别对空库、受支持旧库和已在 head
-  的库启动 FastAPI；三者均到达真实 readiness，且数据库 revision 精确为唯一 head。
+- **关闭证据**：Dockerfile 已复制 `alembic.ini` 与完整 `migrations/`；发布契约
+  对三类运行资产 fail-closed。本地从当前源码构建镜像后，空库、已在 head 和已知
+  旧基线三类 MySQL 场景均达到 readiness 与唯一 head，canary 数据保持不变。
+- **保留边界**：本项关闭不代表 `AUD-006` 的依赖/digest 可重复性或 `AUD-007`
+  的未知 schema fail-closed 已解决，也不构成生产数据恢复证据。
 
 #### AUD-001：AI 对话平面缺少第一方身份与线程/缓存所有权
 
@@ -330,23 +340,21 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 - **可验证完成条件**：故障注入后服务进入可观测降级；Redis 恢复时无需重启即可在
   有界时间内恢复缓存与计数，且探测不会形成重连风暴或错误放大。
 
-### 4.3 P2
+### 4.3 P2（当前开放 8 项，另有 2 项已关闭）
 
 #### AUD-015：凭据扫描未覆盖全部受跟踪文本
 
 - **严重度 / 信心**：**P2 / 2/2 高置信度**。
-- **证据**：发布检查的递归扫描前缀仅包含 `agent_chatui/src`、`data_agent` 和
+- **当前状态**：**当前工作树已关闭（本地证据）**。
+- **历史审计证据**：发布检查的递归扫描前缀仅包含 `agent_chatui/src`、`data_agent` 和
   `utils`：
   [scripts/check_release_contracts.py:L47-L65](../../scripts/check_release_contracts.py#L47-L65)，
   文件发现也只遍历这些前缀：
   [scripts/check_release_contracts.py:L158-L185](../../scripts/check_release_contracts.py#L158-L185)。
-- **影响**：`scripts/`、`migrations/`、`.github/`、测试、文档及其他受跟踪文本
-  可绕过内容扫描，发布门禁可能在凭据已经进入 Git 时仍显示通过。
-- **建议**：以 `git ls-files` 为输入，对所有可识别文本和小型未知文件扫描，明确
-  二进制/生成物排除规则；增加成熟 secret scanner，保留自定义占位符检查。
-- **依赖**：无。
-- **可验证完成条件**：在每个顶层目录植入无效测试 canary 均使本地与 Hosted CI
-  失败；真实二进制和允许样例不误报，扫描结果不回显完整敏感值。
+- **关闭证据**：扫描候选改为 Git 跟踪文件及非忽略的待提交文件；NUL/UTF-8 判定
+  跳过二进制，保留合法占位和拆分样例。`scripts/`、`migrations/`、`.github/`、
+  `tests/`、`.trae/` 与新顶层目录 canary 的确定性测试通过，失败输出只含规则、
+  相对路径和行号。
 
 #### AUD-006：Python 依赖、包元数据、执行契约及镜像/Actions 不可重复
 
@@ -363,25 +371,27 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
   `pip install -r requirements.txt` 契约分裂，供应链回滚和故障复现困难。
 - **建议**：统一权威依赖声明，生成带哈希锁文件，区分运行/开发依赖；
   镜像和 Actions 固定到不可变 digest/SHA并建立自动更新流程。原 `AUD-021`
-  的 Actions 固定问题并入本项；与 `AUD-014`、`AUD-011` 联动。
-- **依赖**：无；关闭证据与 `AUD-014`、`AUD-011` 联动。
+  的 Actions 固定问题并入本项。本轮关闭 `AUD-014`、`AUD-011` 没有锁定这些
+  依赖、基础镜像或 Actions 引用。
+- **依赖**：无；`AUD-014`、`AUD-011` 已关闭，但不构成本项关闭证据。
 - **可验证完成条件**：隔离环境和镜像构建只使用锁文件/固定 digest；同一 SHA
   连续构建得到一致依赖清单，`pip install .` 能运行应用与迁移，依赖漂移在 CI 中失败。
 
 #### AUD-011：Hosted CI 不构建或冒烟实际容器
 
 - **严重度 / 信心**：**P2 / 2/2 高置信度**。
-- **证据**：后端 Job 只运行 pytest 与 isort：
+- **当前状态**：**当前工作树已关闭（本地证据）**；新 Job 的 Hosted 结果待推送
+  后验证，不提前声明通过。
+- **历史审计证据**：后端 Job 只运行 pytest 与 isort：
   [.github/workflows/release-readiness.yml:L30-L40](../../.github/workflows/release-readiness.yml#L30-L40)；
   Contracts Job 仅静态解析 Compose 和执行契约脚本：
   [.github/workflows/release-readiness.yml:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101)。
-- **影响**：当前绿色 Hosted CI 无法发现镜像上下文遗漏、入口错误、运行用户权限、
-  容器内迁移、健康检查或服务网络问题，`AUD-014` 即为该盲区实例。
-- **建议**：增加后端/前端镜像构建、SBOM/漏洞门禁及最小容器冒烟；是否在
-  CI 启动完整 Compose 由成本决定，但至少验证 FastAPI 空库迁移和真实 readiness。
-- **依赖**：`AUD-014`；可重复构建证据与 `AUD-006` 联动。
-- **可验证完成条件**：Hosted CI 从干净 checkout 构建发布镜像并运行最小服务；
-  故意删除迁移资源、破坏入口或 readiness 时 Job 必须失败并保留脱敏诊断。
+- **关闭证据**：工作流新增独立 Container Smoke Job，在 `main` push 与 pull
+  request 上绑定目标 SHA，从干净 checkout 构建当前镜像并验证五服务、三个 HTTP、
+  唯一 head、head canary 和旧基线升级；失败路径有界脱敏且 `always()` 清理。
+  同一脚本已在本地 Docker Linux Engine 完整通过。
+- **保留边界**：当前关闭不含 SBOM、漏洞扫描、依赖/digest 固定或 Hosted 新 Job
+  的运行结果；后者属于推送后的交付证据。
 
 #### AUD-020：前端没有自动化行为测试基线
 
@@ -533,11 +543,11 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | `AUD-008` | `exists=true`<br>`severity=P1`<br>`reason=Redis 故障后限流永久 fail-open。`<br>`evidence=`[rate_limit_service:L134-L142](../../data_agent/services/rate_limit_service.py#L134-L142) | `exists=true`<br>`severity=P1`<br>`reason=无重连或探活恢复路径。`<br>`evidence=`[rate_limit_service:L57-L109](../../data_agent/services/rate_limit_service.py#L57-L109) | 保留，Spec 裁决 `P1`。 |
 | `AUD-009` | `exists=true`<br>`severity=P2`<br>`reason=健康端点无条件成功。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | `exists=true`<br>`severity=P2`<br>`reason=该端点不能证明服务可处理业务请求。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | 保留，Spec 裁决 `P2`。 |
 | `AUD-010` | `exists=true`<br>`severity=P2`<br>`reason=会话和消息列表直接全量读取。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | `exists=true`<br>`severity=P2`<br>`reason=历史增长会形成无界响应和内存压力。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | 保留，Spec 裁决 `P2`；吸收 `AUD-013`。 |
-| `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 保留，Spec 裁决 `P2`。 |
+| `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 审计时保留并裁决 `P2`；当前工作树已关闭，Hosted 新 Job 待推送验证。 |
 | `AUD-012` | `exists=true`<br>`severity=P2`<br>`reason=审计 HMAC 直接复用 JWT 密钥。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | `exists=true`<br>`severity=P2`<br>`reason=两个安全用途不能独立授权和轮换。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | 保留，Spec 裁决 `P2`。 |
 | `AUD-013` | `exists=true`<br>`severity=P2`<br>`reason=前端线程搜索固定只取 100 条。`<br>`evidence=`[Thread:L32-L42](../../agent_chatui/src/providers/Thread.tsx#L32-L42) | `exists=true`<br>`severity=P2`<br>`reason=没有继续分页，超限线程静默不可见。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | 存在性 2/2；作为同一分页根因合并到 `AUD-010`，不重复计数。 |
-| `AUD-014` | `exists=true`<br>`severity=P1`<br>`reason=后端镜像没有复制迁移资源。`<br>`evidence=`[Dockerfile:L10-L18](../../data_agent/Dockerfile#L10-L18) | `exists=true`<br>`severity=P1`<br>`reason=FastAPI 启动立即需要这些资源。`<br>`evidence=`[Dockerfile:L10-L15](../../data_agent/Dockerfile#L10-L15) | 保留，Spec 裁决 `P0`。 |
-| `AUD-015` | `exists=true`<br>`severity=P2`<br>`reason=凭据扫描只覆盖固定文件和三个前缀。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | `exists=true`<br>`severity=P2`<br>`reason=其他受跟踪文本可绕过内容扫描。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | 保留，Spec 裁决 `P2`。 |
+| `AUD-014` | `exists=true`<br>`severity=P1`<br>`reason=后端镜像没有复制迁移资源。`<br>`evidence=`[Dockerfile:L10-L18](../../data_agent/Dockerfile#L10-L18) | `exists=true`<br>`severity=P1`<br>`reason=FastAPI 启动立即需要这些资源。`<br>`evidence=`[Dockerfile:L10-L15](../../data_agent/Dockerfile#L10-L15) | 审计时保留并裁决 `P0`；当前工作树已关闭。 |
+| `AUD-015` | `exists=true`<br>`severity=P2`<br>`reason=凭据扫描只覆盖固定文件和三个前缀。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | `exists=true`<br>`severity=P2`<br>`reason=其他受跟踪文本可绕过内容扫描。`<br>`evidence=`[check_release_contracts:L21-L51](../../scripts/check_release_contracts.py#L21-L51) | 审计时保留并裁决 `P2`；当前工作树已关闭。 |
 | `AUD-016` | `exists=true`<br>`severity=P2`<br>`reason=角色变更未保护最后管理员不变量。`<br>`evidence=`[admin_service:L85-L106](../../data_agent/services/admin_service.py#L85-L106) | `exists=true`<br>`severity=P2`<br>`reason=并发交叉降级可产生零管理员。`<br>`evidence=`[admin_service:L69-L85](../../data_agent/services/admin_service.py#L69-L85) | 保留，Spec 裁决 `P2`。 |
 | `AUD-017` | `exists=true`<br>`severity=P2`<br>`reason=注册只校验字符数下限。`<br>`evidence=`[auth route:L39-L44](../../data_agent/routes/auth.py#L39-L44) | `exists=true`<br>`severity=P2`<br>`reason=bcrypt 72 字节边界没有明确输入语义。`<br>`evidence=`[auth route:L39-L44](../../data_agent/routes/auth.py#L39-L44) | 保留，Spec 裁决 `P2`。 |
 | `AUD-018` | `exists=true`<br>`severity=P3`<br>`reason=限流键对低熵主体使用无密钥摘要。`<br>`evidence=`[rate_limit_service:L68-L78](../../data_agent/services/rate_limit_service.py#L68-L78) | `exists=true`<br>`severity=P3`<br>`reason=有 Redis 访问权时可枚举复算。`<br>`evidence=`[rate_limit_service:L68-L78](../../data_agent/services/rate_limit_service.py#L68-L78) | 保留；Spec 裁决 `P3`。 |
@@ -547,7 +557,8 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 
 矩阵汇总：`AUD-001..018`（除合并项外）和 `AUD-020` 形成 18 个最终问题，
 全部为 2/2 高置信度；`AUD-013`、`AUD-021` 也是 2/2，但分别合并；`AUD-019`
-两者均为 `false`。因此 21 个候选的 42 条验证记录完整，最终问题数仍为 18。
+两者均为 `false`。因此 21 个候选的 42 条验证记录完整，历史问题数仍为 18；
+当前工作树关闭其中 3 项，开放 15 项。
 
 ## 5. 开放决策与风险接受
 
@@ -579,24 +590,26 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 
 ### 6.1 结论
 
-**生产发布：NO-GO。** 18 个 2/2 高置信度问题按 Spec 最终裁决为 **4 个 P0、
-3 个 P1、10 个 P2、1 个 P3**。P0 包含当前后端镜像迁移资源缺失、AI 对话身份/
-所有权断层、浏览器 Key 外发和任意本地文件读取；P1 包含无端到端执行预算、旧库
-盲 stamp 和 Redis 永久降级。任一项都不能由 155 项测试、Compose 静态解析或
-绿色 Hosted CI 抵消。
+**生产发布：NO-GO。** 历史审计识别的 18 个 2/2 高置信度问题中，当前工作树已
+关闭 `AUD-014`、`AUD-011`、`AUD-015`；仍开放 **15 项：3 个 P0、3 个 P1、
+8 个 P2、1 个 P3**。P0 为 AI 对话身份/所有权断层、浏览器 Key 外发和任意本地
+文件读取；P1 为无端到端执行预算、旧库盲 stamp 和 Redis 永久降级。任一开放项
+都不能由 189 项测试或本地容器冒烟抵消。
 
 **本地开发与受控审计：有条件继续。** 可在不使用真实业务数据、不开启 Python
 执行、不暴露到非受控网络、使用已隔离测试凭据和可重建数据的前提下继续开发；
-这不是五服务本轮已运行的声明，也不是生产批准。
+本轮五服务发布拓扑已用专用假配置在本地运行通过；这不是生产批准，也不代表真实
+外部服务、生产数据或 Hosted 新 Job 已验证。
 
 ### 6.2 放行门槛
 
 1. 关闭全部 P0 和 P1，并按各问题的可验证完成条件取得代码、自动化测试和运行证据。
 2. 对 P2/P3 逐项关闭，或形成有责任人、期限、部署范围与补偿控制的书面风险接受；
-   `AUD-011` 的容器证据和 `AUD-020` 的前端行为基线不得仅靠人工口头接受。
+   `AUD-020` 的前端行为基线不得仅靠人工口头接受。
 3. 对 `DEC-001..005` 给出记录化决策，尤其统一 AI 身份/线程边界与 `utils/` 归属。
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. 发布证据继续区分本地、Hosted CI 和未验证项；不得复制敏感原文，也不得以
-   静态检查、历史运行或候选设计冒充当前通过。
+5. 当前 change 推送后验证目标 SHA 的 Backend、Frontend、Release Contracts 和
+   Container Smoke 四个 Hosted Job；发布证据继续区分本地、Hosted CI 和未验证
+   项，不得以工作流定义、历史运行或候选设计冒充当前通过。

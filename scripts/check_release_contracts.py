@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import posixpath
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -13,56 +16,58 @@ from urllib.parse import urlsplit
 NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
+DOCKERIGNORE_PATH = ".dockerignore"
+DOCKERFILE_PATH = "data_agent/Dockerfile"
 MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 USER_MODEL_PATH = "data_agent/models/user.py"
 AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
 EVENTS_MODULE_PATH = "data_agent/observability/events.py"
 
-SCAN_EXACT_FILES = {
-    ".dockerignore",
-    ".env.example",
-    ".gitignore",
-    "AGENTS.md",
-    "README.md",
-    "agent_chatui/.dockerignore",
-    "agent_chatui/.prettierignore",
-    "agent_chatui/Dockerfile",
-    "agent_chatui/README.md",
-    "agent_chatui/components.json",
-    "agent_chatui/eslint.config.js",
-    "agent_chatui/next.config.mjs",
-    "agent_chatui/nginx.conf",
-    "agent_chatui/package.json",
-    "agent_chatui/postcss.config.mjs",
-    "agent_chatui/prettier.config.js",
-    "agent_chatui/start.sh",
-    "agent_chatui/tailwind.config.js",
-    "agent_chatui/tsconfig.json",
-    "data_agent/Dockerfile",
-    "docker-config/docker-compose.yml",
-    "langgraph.json",
+REQUIRED_STRUCTURE_FILES = {
+    NEXT_CONFIG_PATH,
+    ENV_EXAMPLE_PATH,
+    COMPOSE_PATH,
+    DOCKERIGNORE_PATH,
+    DOCKERFILE_PATH,
+    USER_MODEL_PATH,
+    AUDIT_MODULE_PATH,
+    EVENTS_MODULE_PATH,
+}
+DOCKERIGNORE_REQUIRED_ALLOWS = (
     "requirements.txt",
-    "setup.py",
-    "start.sh",
-    "utils/README.md",
-    "utils/requirements.txt",
-    "utils/setup.py",
-}
-SCAN_PREFIXES = ("agent_chatui/src", "data_agent", "utils")
-TEXT_SUFFIXES = {
-    ".css",
-    ".js",
-    ".json",
-    ".md",
-    ".mjs",
-    ".py",
-    ".sh",
-    ".ts",
-    ".tsx",
-    ".txt",
-    ".yml",
-    ".yaml",
-}
+    "data_agent",
+    "data_agent/**",
+    "langgraph.json",
+    "alembic.ini",
+    "migrations",
+    "migrations/**",
+)
+DOCKERIGNORE_REQUIRED_EXCLUDES = (
+    "**/__pycache__",
+    "**/*.py[cod]",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/*.log",
+)
+DOCKERIGNORE_PARENT_ALLOWS = (
+    ("data_agent", "data_agent/**"),
+    ("migrations", "migrations/**"),
+)
+DOCKERFILE_COPY_REQUIREMENTS = (
+    (
+        "DOCKERFILE_ALEMBIC_INI_COPY",
+        ("alembic.ini",),
+    ),
+    (
+        "DOCKERFILE_MIGRATIONS_COPY",
+        ("migrations/env.py", "migrations/script.py.mako"),
+    ),
+    (
+        "DOCKERFILE_MIGRATION_VERSIONS_COPY",
+        ("migrations/versions",),
+    ),
+)
 PLACEHOLDERS = {
     "MOONSHOT_API_KEY": "your_moonshot_api_key_here",
     "TAVILY_API_KEY": "your_tavily_api_key_here",
@@ -91,6 +96,12 @@ RATE_LIMIT_DEFAULTS = {
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
+)
+COPY_INSTRUCTION_PATTERN = re.compile(r"^\s*COPY\s+(.+)$", re.IGNORECASE)
+FROM_INSTRUCTION_PATTERN = re.compile(r"^\s*FROM(?:\s|$)", re.IGNORECASE)
+WORKDIR_INSTRUCTION_PATTERN = re.compile(
+    r"^\s*WORKDIR\s+(.+)$",
+    re.IGNORECASE,
 )
 LEGACY_LOGIN_VARIABLE = "NEXT_PUBLIC_LOGIN_API_URL"
 CREDENTIAL_PATTERNS = (
@@ -147,6 +158,15 @@ class Violation:
     line: int
 
 
+@dataclass(frozen=True)
+class DockerignoreRule:
+    """A normalized, effective Docker ignore rule."""
+
+    pattern: str
+    negated: bool
+    line: int
+
+
 def _normalize_path(path: str | Path) -> str:
     normalized = PurePosixPath(str(path).replace("\\", "/"))
     if normalized.is_absolute() or ".." in normalized.parts:
@@ -154,49 +174,18 @@ def _normalize_path(path: str | Path) -> str:
     return normalized.as_posix()
 
 
-def _is_scanned_path(path: str) -> bool:
-    if path in SCAN_EXACT_FILES:
-        return True
-    return any(
-        path == prefix or path.startswith(f"{prefix}/")
-        for prefix in SCAN_PREFIXES
-    ) and (
-        PurePosixPath(path).suffix.lower() in TEXT_SUFFIXES
-        or PurePosixPath(path).name == "Dockerfile"
-    )
-
-
-def _discover_scan_files(root: Path) -> set[str]:
-    files = {
-        path
-        for path in SCAN_EXACT_FILES
-        if (root / PurePosixPath(path)).is_file()
-    }
-    for prefix in SCAN_PREFIXES:
-        directory = root / PurePosixPath(prefix)
-        if not directory.is_dir():
-            continue
-        for candidate in directory.rglob("*"):
-            if not candidate.is_file():
-                continue
-            relative = candidate.relative_to(root).as_posix()
-            if _is_scanned_path(relative):
-                files.add(relative)
-    return files
-
-
-def _git_tracked_files(root: Path) -> set[str]:
+def _git_files(root: Path, *options: str) -> set[str]:
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"],
+            ["git", "-C", str(root), "ls-files", "-z", *options],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
     except OSError as exc:
-        raise RuntimeError("unable to enumerate tracked files") from exc
+        raise RuntimeError("unable to enumerate repository files") from exc
     if result.returncode != 0:
-        raise RuntimeError("unable to enumerate tracked files")
+        raise RuntimeError("unable to enumerate repository files")
     return {
         _normalize_path(path)
         for path in result.stdout.decode("utf-8", errors="surrogateescape").split(
@@ -206,15 +195,44 @@ def _git_tracked_files(root: Path) -> set[str]:
     }
 
 
-def _read_text(
+def _git_tracked_files(root: Path) -> set[str]:
+    return _git_files(root, "--cached")
+
+
+def _git_scan_files(root: Path) -> set[str]:
+    return _git_files(root, "--cached", "--others", "--exclude-standard")
+
+
+def _read_required_text(
     root: Path,
     path: str,
     violations: list[Violation],
 ) -> str | None:
     try:
-        return (root / PurePosixPath(path)).read_text(encoding="utf-8")
+        content = (root / PurePosixPath(path)).read_bytes()
+        if b"\0" in content:
+            raise UnicodeError
+        return content.decode("utf-8")
     except (OSError, UnicodeError):
         violations.append(Violation("FILE_READ", path, 1))
+        return None
+
+
+def _read_scan_text(
+    root: Path,
+    path: str,
+    violations: list[Violation],
+) -> str | None:
+    try:
+        content = (root / PurePosixPath(path)).read_bytes()
+    except OSError:
+        violations.append(Violation("FILE_READ", path, 1))
+        return None
+    if b"\0" in content:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
         return None
 
 
@@ -222,6 +240,322 @@ def _line_matches(text: str, pattern: re.Pattern[str]) -> Iterable[int]:
     for line_number, line in enumerate(text.splitlines(), start=1):
         if pattern.search(line):
             yield line_number
+
+
+def _dockerignore_rules(text: str) -> list[DockerignoreRule]:
+    rules: list[DockerignoreRule] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#"):
+            continue
+        negated = candidate.startswith("!")
+        if negated:
+            candidate = candidate[1:].strip()
+        normalized = posixpath.normpath(candidate.replace("\\", "/"))
+        if normalized == ".":
+            normalized = ""
+        rules.append(
+            DockerignoreRule(
+                pattern=normalized.lstrip("/"),
+                negated=negated,
+                line=line_number,
+            )
+        )
+    return rules
+
+
+def _check_dockerignore(
+    text: str,
+    violations: list[Violation],
+) -> None:
+    rules = _dockerignore_rules(text)
+    if (
+        not rules
+        or rules[0].negated
+        or rules[0].pattern != "**"
+    ):
+        line = rules[0].line if rules else 1
+        violations.append(
+            Violation("DOCKERIGNORE_DEFAULT_DENY", DOCKERIGNORE_PATH, line)
+        )
+
+    required_allows = set(DOCKERIGNORE_REQUIRED_ALLOWS)
+    required_excludes = set(DOCKERIGNORE_REQUIRED_EXCLUDES)
+    seen: dict[tuple[bool, str], DockerignoreRule] = {}
+    for rule in rules:
+        key = (rule.negated, rule.pattern)
+        if key in seen:
+            violations.append(
+                Violation(
+                    "DOCKERIGNORE_DUPLICATE_RULE",
+                    DOCKERIGNORE_PATH,
+                    rule.line,
+                )
+            )
+            continue
+        seen[key] = rule
+        if rule.negated and rule.pattern not in required_allows:
+            violations.append(
+                Violation(
+                    "DOCKERIGNORE_NON_RUNTIME_ALLOW",
+                    DOCKERIGNORE_PATH,
+                    rule.line,
+                )
+            )
+        if (
+            not rule.negated
+            and rule.pattern not in required_excludes | {"**"}
+        ):
+            violations.append(
+                Violation(
+                    "DOCKERIGNORE_UNEXPECTED_EXCLUDE",
+                    DOCKERIGNORE_PATH,
+                    rule.line,
+                )
+            )
+
+    allow_rules = {
+        pattern: seen.get((True, pattern))
+        for pattern in required_allows
+    }
+    if any(rule is None for rule in allow_rules.values()):
+        violations.append(
+            Violation(
+                "DOCKERIGNORE_REQUIRED_ALLOW",
+                DOCKERIGNORE_PATH,
+                1,
+            )
+        )
+    for parent, tree in DOCKERIGNORE_PARENT_ALLOWS:
+        parent_rule = allow_rules[parent]
+        tree_rule = allow_rules[tree]
+        if (
+            parent_rule is not None
+            and tree_rule is not None
+            and parent_rule.line > tree_rule.line
+        ):
+            violations.append(
+                Violation(
+                    "DOCKERIGNORE_PARENT_ALLOW_ORDER",
+                    DOCKERIGNORE_PATH,
+                    tree_rule.line,
+                )
+            )
+
+    exclude_rules = {
+        pattern: seen.get((False, pattern))
+        for pattern in required_excludes
+    }
+    if any(rule is None for rule in exclude_rules.values()):
+        violations.append(
+            Violation(
+                "DOCKERIGNORE_REQUIRED_EXCLUDE",
+                DOCKERIGNORE_PATH,
+                1,
+            )
+        )
+    present_allows = [
+        rule for rule in allow_rules.values() if rule is not None
+    ]
+    present_cleanup_excludes = [
+        rule
+        for rule in exclude_rules.values()
+        if rule is not None
+    ]
+    if present_allows and present_cleanup_excludes:
+        last_allow_line = max(rule.line for rule in present_allows)
+        early_cleanup = min(
+            (
+                rule
+                for rule in present_cleanup_excludes
+                if rule.line < last_allow_line
+            ),
+            key=lambda rule: rule.line,
+            default=None,
+        )
+        if early_cleanup is not None:
+            violations.append(
+                Violation(
+                    "DOCKERIGNORE_EXCLUDE_ORDER",
+                    DOCKERIGNORE_PATH,
+                    early_cleanup.line,
+                )
+            )
+
+
+def _dockerfile_instructions(text: str) -> Iterable[tuple[int, str]]:
+    start_line = 0
+    parts: list[str] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not parts and (not stripped or stripped.startswith("#")):
+            continue
+        if not parts:
+            start_line = line_number
+        continued = line.rstrip().endswith("\\")
+        part = line.rstrip()
+        if continued:
+            part = part[:-1]
+        parts.append(part)
+        if continued:
+            continue
+        yield start_line, " ".join(parts)
+        parts = []
+    if parts:
+        yield start_line, " ".join(parts)
+
+
+def _final_dockerfile_stage(
+    text: str,
+) -> list[tuple[int, str]]:
+    instructions = list(_dockerfile_instructions(text))
+    final_stage_start = 0
+    for index, (_, instruction) in enumerate(instructions):
+        if FROM_INSTRUCTION_PATTERN.match(instruction):
+            final_stage_start = index
+    return instructions[final_stage_start:]
+
+
+def _parse_copy_arguments(
+    arguments: str,
+) -> tuple[list[str], str] | None:
+    while arguments.startswith("--"):
+        option, separator, remainder = arguments.partition(" ")
+        if option == "--from" or option.startswith("--from="):
+            return None
+        if not separator:
+            return None
+        arguments = remainder.lstrip()
+
+    if arguments.startswith("["):
+        try:
+            values = json.loads(arguments)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if (
+            not isinstance(values, list)
+            or len(values) < 2
+            or not all(isinstance(value, str) for value in values)
+        ):
+            return None
+    else:
+        try:
+            values = shlex.split(arguments, posix=True)
+        except ValueError:
+            return None
+        if len(values) < 2:
+            return None
+    return values[:-1], values[-1]
+
+
+def _resolve_container_path(
+    raw_path: str,
+    workdir: PurePosixPath | None,
+) -> PurePosixPath | None:
+    if "$" in raw_path:
+        return None
+    path = PurePosixPath(raw_path.replace("\\", "/"))
+    if ".." in path.parts:
+        return None
+    if path.is_absolute():
+        return path
+    if workdir is None:
+        return None
+    return workdir / path
+
+
+def _dockerfile_copy_operations(
+    text: str,
+) -> list[tuple[tuple[str, ...], PurePosixPath, bool]]:
+    operations: list[tuple[tuple[str, ...], PurePosixPath, bool]] = []
+    workdir: PurePosixPath | None = None
+    for _, instruction in _final_dockerfile_stage(text):
+        workdir_match = WORKDIR_INSTRUCTION_PATTERN.match(instruction)
+        if workdir_match is not None:
+            try:
+                values = shlex.split(workdir_match.group(1), posix=True)
+            except ValueError:
+                workdir = None
+                continue
+            workdir = (
+                _resolve_container_path(values[0], workdir)
+                if len(values) == 1
+                else None
+            )
+            continue
+
+        copy_match = COPY_INSTRUCTION_PATTERN.match(instruction)
+        if copy_match is None or workdir is None:
+            continue
+        parsed = _parse_copy_arguments(copy_match.group(1).strip())
+        if parsed is None:
+            continue
+        raw_sources, raw_destination = parsed
+        destination = _resolve_container_path(raw_destination, workdir)
+        if destination is None:
+            continue
+
+        sources: list[str] = []
+        for raw_source in raw_sources:
+            source = PurePosixPath(
+                raw_source.replace("\\", "/")
+            )
+            if source.is_absolute() or ".." in source.parts:
+                continue
+            sources.append(source.as_posix().rstrip("/"))
+        destination_is_directory = (
+            len(raw_sources) > 1
+            or raw_destination.replace("\\", "/").endswith("/")
+            or destination == workdir
+        )
+        operations.append(
+            (tuple(sources), destination, destination_is_directory)
+        )
+    return operations
+
+
+def _copy_operation_covers(
+    operation: tuple[tuple[str, ...], PurePosixPath, bool],
+    required_path: str,
+) -> bool:
+    sources, destination, destination_is_directory = operation
+    required = PurePosixPath(required_path)
+    expected = PurePosixPath("/app") / required
+    for source_text in sources:
+        source = PurePosixPath(source_text)
+        if source_text == ".":
+            continue
+        if source == required:
+            if required_path == "migrations/versions":
+                copied_path = destination
+            elif destination_is_directory:
+                copied_path = destination / source.name
+            else:
+                copied_path = destination
+        elif required_path.startswith(f"{source_text}/"):
+            copied_path = destination / required.relative_to(source)
+        else:
+            continue
+        if copied_path == expected:
+            return True
+    return False
+
+
+def _check_dockerfile(
+    text: str,
+    violations: list[Violation],
+) -> None:
+    operations = _dockerfile_copy_operations(text)
+    for rule, required_paths in DOCKERFILE_COPY_REQUIREMENTS:
+        if all(
+            any(
+                _copy_operation_covers(operation, required_path)
+                for operation in operations
+            )
+            for required_path in required_paths
+        ):
+            continue
+        violations.append(Violation(rule, DOCKERFILE_PATH, 1))
 
 
 def _check_env_example(
@@ -414,10 +748,11 @@ def _check_migration_head(
 
 
 def _check_rbac_contracts(
-    texts: dict[str, str],
+    structure_texts: dict[str, str],
+    scan_texts: dict[str, str],
     violations: list[Violation],
 ) -> None:
-    user_model = texts.get(USER_MODEL_PATH)
+    user_model = structure_texts.get(USER_MODEL_PATH)
     if user_model is not None:
         if (
             ROLE_DEFAULT_PATTERN.search(user_model) is None
@@ -431,8 +766,8 @@ def _check_rbac_contracts(
                 Violation("RBAC_ROLE_CONSTRAINT", USER_MODEL_PATH, 1)
             )
 
-    audit_module = texts.get(AUDIT_MODULE_PATH)
-    events_module = texts.get(EVENTS_MODULE_PATH)
+    audit_module = structure_texts.get(AUDIT_MODULE_PATH)
+    events_module = structure_texts.get(EVENTS_MODULE_PATH)
     if (
         audit_module is not None
         and (
@@ -458,7 +793,7 @@ def _check_rbac_contracts(
                 )
             )
 
-    for path, text in texts.items():
+    for path, text in scan_texts.items():
         if not path.startswith("data_agent/"):
             continue
         match = AUTO_ADMIN_PATTERN.search(text)
@@ -493,61 +828,69 @@ def check_repository(
         tracked = {_normalize_path(path) for path in tracked_files}
 
     if scan_files is None:
-        scanned = _discover_scan_files(repository_root)
+        try:
+            scanned = _git_scan_files(repository_root)
+        except RuntimeError:
+            scanned = set()
+            violations.append(Violation("SCAN_FILES", ".", 1))
     else:
-        scanned = {
-            normalized
-            for path in scan_files
-            if _is_scanned_path(normalized := _normalize_path(path))
-        }
+        scanned = {_normalize_path(path) for path in scan_files}
 
-    required_files = {
-        NEXT_CONFIG_PATH,
-        ENV_EXAMPLE_PATH,
-        COMPOSE_PATH,
-        USER_MODEL_PATH,
-        AUDIT_MODULE_PATH,
-        EVENTS_MODULE_PATH,
-    }
-    texts: dict[str, str] = {}
-    for path in sorted(scanned | required_files):
+    structure_texts: dict[str, str] = {}
+    for path in sorted(REQUIRED_STRUCTURE_FILES):
         if not (repository_root / PurePosixPath(path)).is_file():
-            if path in required_files:
-                violations.append(Violation("REQUIRED_FILE", path, 1))
+            violations.append(Violation("REQUIRED_FILE", path, 1))
             continue
-        text = _read_text(repository_root, path, violations)
+        text = _read_required_text(repository_root, path, violations)
         if text is not None:
-            texts[path] = text
+            structure_texts[path] = text
 
-    next_config = texts.get(NEXT_CONFIG_PATH)
+    scan_texts: dict[str, str] = {}
+    for path in sorted(scanned):
+        if not (repository_root / PurePosixPath(path)).is_file():
+            continue
+        text = _read_scan_text(repository_root, path, violations)
+        if text is not None:
+            scan_texts[path] = text
+
+    next_config = structure_texts.get(NEXT_CONFIG_PATH)
     if next_config is not None:
         for line in _line_matches(next_config, BUILD_BYPASS_PATTERN):
             violations.append(
                 Violation("NEXT_BUILD_BYPASS", NEXT_CONFIG_PATH, line)
             )
 
-    env_example = texts.get(ENV_EXAMPLE_PATH)
+    env_example = structure_texts.get(ENV_EXAMPLE_PATH)
     if env_example is not None:
         _check_env_example(env_example, violations)
 
-    compose = texts.get(COMPOSE_PATH)
+    compose = structure_texts.get(COMPOSE_PATH)
     if compose is not None:
         _check_compose_urls(compose, violations)
         _check_compose_logging(compose, violations)
 
+    dockerignore = structure_texts.get(DOCKERIGNORE_PATH)
+    if dockerignore is not None:
+        _check_dockerignore(dockerignore, violations)
+
+    dockerfile = structure_texts.get(DOCKERFILE_PATH)
+    if dockerfile is not None:
+        _check_dockerfile(dockerfile, violations)
+
     legacy_pattern = re.compile(re.escape(LEGACY_LOGIN_VARIABLE))
-    for path, text in texts.items():
-        for line in _line_matches(text, legacy_pattern):
-            violations.append(
-                Violation("LEGACY_LOGIN_VARIABLE", path, line)
-            )
+    for path, text in scan_texts.items():
+        if path.startswith("agent_chatui/src/"):
+            for line in _line_matches(text, legacy_pattern):
+                violations.append(
+                    Violation("LEGACY_LOGIN_VARIABLE", path, line)
+                )
         for line_number, line in enumerate(text.splitlines(), start=1):
             if any(pattern.search(line) for pattern in CREDENTIAL_PATTERNS):
                 violations.append(
                     Violation("CREDENTIAL_PATTERN", path, line_number)
                 )
 
-    _check_rbac_contracts(texts, violations)
+    _check_rbac_contracts(structure_texts, scan_texts, violations)
 
     for path in tracked:
         if _is_tracked_local_env(path):

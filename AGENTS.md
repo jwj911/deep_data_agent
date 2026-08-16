@@ -36,15 +36,22 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-仓库保留 7 个已完成 change-id；最近完成的运行时迭代是
-`.trae/specs/add-rbac-audit/`，提供固定角色、默认拒绝授权、受限管理员 API 和
-人工管理员引导，不包含管理员前端、自定义角色或长期审计存储。
+仓库保留 8 个已完成 change-id；最近完成的是
+`.trae/specs/restore-runtime-release-gates/`，补齐后端镜像迁移资产、全版本控制
+文本凭据扫描和 Container Smoke 工作流。该完成状态以当前工作树的本地证据为准；
+新增 Hosted Container Smoke Job 尚未推送，必须标为待验证，不能提前声称通过。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
-并于 2026-08-16 完成交付复核：155 项后端测试与 Hosted CI 三个 Job 通过，但确认
-18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3），当前生产发布判断为
-NO-GO。Roadmap 中 12 个后续 change-id 均为未启动候选；本轮没有 Docker 五服务
-或真实外部服务运行证据，不得把静态检查或历史结果写成当前验收。
+历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
+`AUD-014`、`AUD-011`、`AUD-015`，仍开放 15 项（3 P0 / 3 P1 / 8 P2 / 1 P3），
+生产发布判断仍为 NO-GO；`AUD-006`、`AUD-007` 等边界不因本轮容器证据而关闭。
+Roadmap 现有 11 个未启动候选，下一候选继续按风险驱动排序。
+
+本轮本地证据为 Python 3.12.9 下 189 项测试、迁移定向测试 7 项，以及 Node.js
+22.22.2、pnpm 10.5.1 下四项前端门禁。当前源码镜像的五服务、三个非业务 HTTP
+端点、唯一 migration head、head canary 和已知旧基线升级均通过，旧基线角色回填
+为 `user`；过程未调用外部模型/搜索或发送业务查询，容器、网络、匿名卷、临时配置
+和生成物已完整清理。
 
 ## 3. 关键结构
 
@@ -89,7 +96,8 @@ deep_data_agent/
 └── scripts/
     ├── bootstrap_admin.py
     ├── check_release_contracts.py
-    └── export_diagnostics.py
+    ├── export_diagnostics.py
+    └── verify_container_smoke.py
 ```
 
 ### 3.1 服务入口
@@ -208,11 +216,17 @@ Moonshot 或 Tavily。
 - 请求 ID 校验与传播、CORS 响应头、结构化事件字段和异常脱敏。
 - 诊断报告过滤、倒序时间线、高频折叠、延迟指标和本地告警信号。
 - 迁移在干净 SQLite 升级到 head 建出等价 schema、模型与迁移无漂移和 head 唯一。
+- 后端镜像迁移资产、全仓库凭据文本发现，以及五服务/HTTP/head/canary/旧基线
+  容器冒烟辅助逻辑。
 
 文档或窄范围改动至少执行相关检查和定向 `git diff --check`。发布候选还必须执行
 前端类型、零警告 Lint、格式、构建、Compose 解析、凭据与发布契约扫描（含迁移
 head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用户冒烟。没有 Docker
 运行证据时，不得声称容器验收通过。
+
+2026-08-16 的当前工作树已取得 Python 3.12.9 共 189 项测试、7 项迁移定向测试、
+Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁，以及本地 Docker 五服务发布冒烟证据。
+新增 Hosted Container Smoke Job 仍须在当前 change 推送后绑定目标 SHA 验证。
 
 ## 7. 安全现状
 
@@ -246,8 +260,8 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - 结构化事件和诊断报告是轻量本地基线，不等同于分布式追踪平台或长期指标存储。
 - 当前没有 OpenTelemetry Collector、Prometheus、Grafana、SLO 看板或自动告警
   通知；引入这些组件前必须另行评审成本、保留周期和访问控制。
-- 本机 Node.js 25.2.1 超出支持的 22.x 范围，最终前端发布证据以 Node.js 22 的
-  GitHub Hosted CI 和 Docker 构建为准。
+- 本机默认 Node.js 25.2.1 超出支持的 22.x 范围；本轮通过临时 PATH 使用
+  Node.js 22.22.2 与 pnpm 10.5.1 取得本地前端发布证据。
 - LangGraph 本地服务仍为 noop 认证，日志与诊断报告不能作为授权或审计替代品。
 - 请求限流为单实例本地 Redis 固定窗口，非全局分布式速率控制；无令牌桶、自动
   封禁或跨实例配额共享，Redis 故障时 fail-open。
@@ -259,7 +273,7 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - `README.md`：本地开发、配置、Docker 和验证命令。
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、问题清单、
   证据边界与发布判断。
-- `.trae/documents/roadmap.md`：7 个已完成 change-id 和 12 个未启动候选迭代。
+- `.trae/documents/roadmap.md`：8 个已完成 change-id 和 11 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
@@ -268,3 +282,5 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 - `.trae/specs/add-observability-diagnostics/`：已完成的可观测性与诊断规格。
 - `.trae/specs/add-versioned-migrations/`：版本化数据库迁移规格。
 - `.trae/specs/add-rbac-audit/`：已完成的 RBAC 与脱敏审计规格。
+- `.trae/specs/restore-runtime-release-gates/`：已完成的运行时发布门禁规格；
+  Hosted Container Smoke 待推送验证。

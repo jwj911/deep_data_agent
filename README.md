@@ -292,7 +292,7 @@ ENABLE_CODE_EXECUTION=false
 后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph 导出、
 缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
 双用户会话隔离、RBAC 管理、管理员引导、角色迁移、时间字段兼容、请求 ID、
-结构化脱敏事件和诊断报告：
+结构化脱敏事件、诊断报告、发布镜像资产和容器冒烟辅助逻辑：
 
 ```powershell
 python -m pytest
@@ -319,11 +319,21 @@ git diff --check
 git status --short
 ```
 
-完整冒烟检查还需 Docker Linux Engine 正常运行，并在 `.env` 中提供有效模型
-密钥及至少 32 个字符的 JWT 密钥。启动后依次访问前端、FastAPI 健康端点和
-LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息。所有冒烟和
-数据分析验证必须人工触发，输入使用脱敏或专用测试数据；密钥、Token、`.env`
-和业务数据不得提交到版本控制。
+`restore-runtime-release-gates` 已取得 2026-08-16 本地证据：Python 3.12.9 下
+189 项测试通过，其中迁移定向测试 7 项；Node.js 22.22.2、pnpm 10.5.1 下
+`typecheck`、零警告 `lint`、`format:check` 和 `build` 通过。Docker Linux Engine
+从当前源码重建前后端镜像后，MySQL、Redis、FastAPI、LangGraph、Frontend 五服务
+均健康，FastAPI `/api/health`、LangGraph `/info` 和前端 `/data_copilot/` 三个
+HTTP 端点通过；空库到达唯一 head `8f3c1b7a2d4e`，head 重启 canary 保持不变，
+已知旧基线升级后 canary 保持且角色回填为 `user`。该过程只使用专用假配置和
+不可外连的模型地址，不发送业务查询、未调用模型或搜索外部服务；容器、网络、
+匿名卷、临时配置及前端生成物均已清理。
+
+GitHub Actions 已新增独立 Container Smoke Job，但当前工作树尚未推送，目标 SHA
+的 Hosted Container Smoke 仍为**待推送验证**，不得写成已通过。需要真实模型的
+产品行为冒烟仍须由授权人员人工触发，并使用脱敏或专用测试数据；密钥、Token、
+`.env` 和业务数据不得提交到版本控制。本轮不关闭 `AUD-006` 的依赖/镜像/Actions
+可重复性，也不关闭 `AUD-007` 的未知或漂移 schema fail-closed 边界。
 
 配置有效 `JWT_SECRET_KEY` 后，第一方认证冒烟检查建议覆盖：注册并登录两个
 不同用户，各自通过 `GET /api/auth/me` 确认身份；用一个用户的 Token 访问另一个
@@ -340,9 +350,12 @@ LangGraph `/info`，再从前端创建线程并向 `agent` 图提交一条消息
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
-  18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）、证据边界与发布判断。
-- `.trae/documents/roadmap.md`：7 个已完成 change-id 和 12 个未启动候选迭代。
+  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 15 项
+  （3 P0 / 3 P1 / 8 P2 / 1 P3）；生产发布判断仍为 NO-GO。
+- `.trae/documents/roadmap.md`：8 个已完成 change-id 和 11 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
   脱敏审计规格。
+- `.trae/specs/restore-runtime-release-gates/`：已完成的镜像迁移资产、全仓库
+  凭据扫描和本地容器发布门禁规格；Hosted 新 Job 待推送验证。

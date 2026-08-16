@@ -1,10 +1,10 @@
 # Deep Data Agent Roadmap
 
-> 状态日期：2026-08-16。本文保留 7 个已完成 change-id，并把 Task 3 独立复核后
-> 保留的 18 个 2/2 高置信度问题转为候选迭代；按 Spec 最终裁决为 **4 个 P0、
-> 3 个 P1、10 个 P2、1 个 P3**。除“已完成”表外，本文所有 change-id 均为
-> **未启动候选**，不代表能力已经实现，也不构成自动执行授权；最终 severity
-> 由 Spec 定义裁决，不反写两个验证者原始的 P1/P2 建议。
+> 状态日期：2026-08-16。历史审计保留 18 个 2/2 高置信度问题；当前工作树已由
+> `restore-runtime-release-gates` 关闭 `AUD-014`、`AUD-011`、`AUD-015`，开放
+> **15 项：3 P0 / 3 P1 / 8 P2 / 1 P3**。本文现有 8 个已完成 change-id 和
+> 11 个未启动候选；生产发布仍为 **NO-GO**。新增 Hosted Container Smoke 为
+> 待推送验证，不得提前记为通过。
 
 ## 1. 使用与决策原则
 
@@ -20,7 +20,7 @@
   关闭；出现凭据泄露、跨租户访问、不可恢复数据变化或无法限制的资源消耗时立即
   停止对应迭代。
 
-## 2. 已完成的 7 个 change-id
+## 2. 已完成的 8 个 change-id
 
 | 顺序 | change-id | 里程碑 | 主要边界 | 状态 |
 | --- | --- | --- | --- | --- |
@@ -31,14 +31,15 @@
 | 5 | `add-request-rate-limiting` | 增加请求限流与资源保护 | FastAPI 身份维度固定窗口限流，Redis 故障时受观测地 fail-open | 已完成 |
 | 6 | `add-versioned-migrations` | 增加版本化数据库迁移 | Alembic 单 head、全新库 upgrade、旧库 stamp 与 schema 漂移测试 | 已完成 |
 | 7 | `add-rbac-audit` | 增加 RBAC 与脱敏审计 | 固定 `user`/`admin` 角色、双层默认拒绝、人工管理员引导和 HMAC 身份引用 | 已完成 |
+| 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke 定义；Hosted 新 Job 待推送验证 | 已完成（本地证据） |
 
 ## 3. 优先级依据
 
 | 优先级 | 调整理由 |
 | --- | --- |
-| P0 近期阻塞项 | `AUD-014` 是当前发布阻断；`AUD-001`、`AUD-003` 和 `AUD-002` 可直接造成跨用户访问或凭据/数据泄露。四项必须优先关闭，P2 交付基线不得反向阻塞其修复。 |
+| P0 近期阻塞项 | `AUD-001`、`AUD-003` 和 `AUD-002` 可直接造成跨用户访问或凭据/数据泄露，是下一候选顺序的首要驱动。已关闭的 `AUD-014` 不再占用候选位置。 |
 | P1 近期阻塞项 | `AUD-004`、`AUD-007`、`AUD-008` 分别涉及生产资源失控、迁移重大不一致和 Redis 故障后保护永久降级；可在对应 P0 前置完成后并行推进。 |
-| P2/P3 收敛项 | 10 个 P2 和 1 个 P3 进入发布门禁、可恢复性、身份治理及分页候选；它们不改变 P0/P1 的优先级，但其验收仍是生产放行条件。 |
+| P2/P3 收敛项 | 当前开放 8 个 P2 和 1 个 P3，进入交付基线、文件治理、健康、身份及分页候选；它们不改变 P0/P1 的优先级，但其验收仍是生产放行条件。 |
 | 中期业务能力 | 身份/管理员/密钥治理和会话分页有明确用户价值，但不应抢占当前发布与 Agent 隔离修复；完成后再承载更敏感、更长生命周期的数据分析工作。 |
 | 长期平台候选 | Git 历史重写、生产托管边界和长期审计存储需要仓库协作、部署目标、合规周期与成本决策，当前先记录延期边界和触发条件，不伪装为已实现平台能力。 |
 
@@ -49,31 +50,28 @@
 
 ```mermaid
 flowchart TD
-    DONE["7 个已完成 change-id"]:::completed
+    DONE["8 个已完成 change-id<br/>含 restore-runtime-release-gates"]:::completed
 
-    GATE["1 restore-runtime-release-gates<br/>P0：镜像；P2：CI / 凭据"]:::critical
-    BASE["2 stabilize-delivery-baseline<br/>P2：依赖 / 前端测试 / utils 决策"]:::medium
-    TENANT["3 secure-agent-tenant-boundaries<br/>P0：Agent 租户与 Key"]:::critical
+    TENANT["1 secure-agent-tenant-boundaries<br/>P0：Agent 租户与 Key"]:::critical
+    FILE["2 isolate-file-ingestion<br/>P0/P2：文件隔离与上传"]:::critical
+    BUDGET["3 bound-agent-resource-use<br/>P1/P2：预算 / Redis / 健康"]:::parallel
+    RECOVERY["4 prove-data-recovery<br/>P1：迁移 / 备份 / 恢复"]:::parallel
+    BASE["5 stabilize-delivery-baseline<br/>P2：依赖 / 前端测试 / utils 决策"]:::medium
 
-    FILE["4 isolate-file-ingestion<br/>P0/P2：文件隔离与上传"]:::critical
-    BUDGET["5 bound-agent-resource-use<br/>P1/P2：预算 / Redis / 健康"]:::parallel
-    RECOVERY["6 prove-data-recovery<br/>P1：迁移 / 备份 / 恢复"]:::parallel
+    IDENTITY["6 harden-identity-administration<br/>中期：身份 / 管理员 / 密钥"]:::medium
+    PAGE["7 paginate-session-history<br/>中期：会话分页"]:::medium
+    ANALYSIS["8 deliver-data-analysis-reports<br/>锁定：分析 / 图表 / 报告"]:::locked
 
-    IDENTITY["7 harden-identity-administration<br/>中期：身份 / 管理员 / 密钥"]:::medium
-    PAGE["8 paginate-session-history<br/>中期：会话分页"]:::medium
-    ANALYSIS["9 deliver-data-analysis-reports<br/>锁定：分析 / 图表 / 报告"]:::locked
+    HISTORY["9 rewrite-credential-history<br/>延期风险决策"]:::deferred
+    HOSTING["10 define-production-hosting-boundary<br/>延期风险决策"]:::deferred
+    AUDIT["11 persist-compliance-audit-records<br/>长期平台候选"]:::deferred
 
-    HISTORY["10 rewrite-credential-history<br/>延期风险决策"]:::deferred
-    HOSTING["11 define-production-hosting-boundary<br/>延期风险决策"]:::deferred
-    AUDIT["12 persist-compliance-audit-records<br/>长期平台候选"]:::deferred
-
-    DONE -->|当前 HEAD 重新验证| GATE
-    GATE -->|P0 发布前置| TENANT
-    GATE -->|可并行收敛 P2| BASE
+    DONE -->|下一 P0| TENANT
+    DONE -->|P1 可并行准备| RECOVERY
+    DONE -->|P2 不抢占高风险项| BASE
 
     TENANT -->|租户前置完成后并行| FILE
     TENANT -->|租户前置完成后并行| BUDGET
-    GATE -->|可并行| RECOVERY
     BASE -->|可并行| IDENTITY
     BASE -->|可并行| PAGE
 
@@ -83,8 +81,8 @@ flowchart TD
     RECOVERY -->|恢复硬前置| ANALYSIS
     IDENTITY -->|敏感数据身份前置| ANALYSIS
 
-    GATE -.->|协调后再决定| HISTORY
-    GATE -.->|保持 local-only，待目标明确| HOSTING
+    DONE -.->|协调后再决定| HISTORY
+    DONE -.->|保持 local-only，待目标明确| HOSTING
     HOSTING -.->|保留与合规策略明确后| AUDIT
     IDENTITY -.->|独立密钥完成后| AUDIT
 
@@ -96,34 +94,31 @@ flowchart TD
     classDef deferred fill:#374151,color:#ffffff,stroke:#111827,stroke-width:2px,stroke-dasharray:5 5;
 ```
 
-## 5. 近期阻塞项
+## 5. 已完成门禁与近期阻塞项
+
+本节编号用于文档定位，不代表执行顺序；11 个未启动候选的风险驱动顺序以第 4 节
+Mermaid 节点编号为准。
 
 ### 5.1 `restore-runtime-release-gates`
 
-- **状态**：候选，未启动；近期第 1 优先级。
-- **目标**：恢复当前源码镜像的可启动性，并让 CI 与凭据门禁能够阻止同类回归进入
-  主分支。
+- **状态**：已完成（当前工作树本地证据）；不再计入 11 个未启动候选。Hosted
+  Container Smoke 待推送验证。
+- **结果**：恢复当前源码镜像的迁移可启动性，并让 CI 与凭据门禁能够阻止同类
+  镜像缺件或凭据扫描盲区回归进入主分支。
 - **映射**：`AUD-014`（P0，当前镜像运行资产不完整）、`AUD-011`（P2，CI 缺少
-  镜像运行证据）、`AUD-015`（P2，凭据扫描范围存在盲区）。
-- **依赖**：7 个已完成 change-id；可用的 Docker Linux Engine 和不含真实凭据的
-  专用测试配置。
-- **进入条件**：固定待验证 commit SHA；确认镜像启动所需的 Alembic 配置、迁移、
-  启动命令和健康探针清单；定义全仓库文本扫描与二进制排除规则。
-- **范围**：修正 FastAPI/LangGraph 镜像内容和启动契约；在 CI 构建当前镜像并运行
-  五服务健康/迁移 head 冒烟；把凭据检查扩展到全部受版本控制文本及变更集，输出
-  只含规则、路径和行号。
-- **非目标**：不调用真实模型/搜索服务；不部署生产环境；不在本轮锁定全部传递
-  依赖；不重写 Git 历史。
-- **验收门槛**：干净构建上下文可重复构建前后端镜像；MySQL、Redis、FastAPI、
-  LangGraph、前端五服务使用专用假凭据启动且健康，数据库处于唯一 migration
-  head；CI 对目标 SHA 产生 Backend、Frontend、Release Contracts 和镜像冒烟
-  成功证据；在此前未覆盖路径植入的脱敏假凭据可使门禁失败，日志不回显值。
-- **停止条件**：发现真实凭据、镜像需要复制本地 `.env`、迁移可能破坏现有数据，
-  或 Hosted CI 结果无法绑定目标 SHA 时立即停止，不允许以本地单次成功替代。
+  镜像运行证据）、`AUD-015`（P2，凭据扫描范围存在盲区），三项均由当前工作树
+  关闭。
+- **本地证据**：Python 3.12.9 共 189 项测试，其中迁移定向测试 7 项；Node.js
+  22.22.2、pnpm 10.5.1 前端四门禁通过。当前源码镜像的五服务、三个非业务 HTTP、
+  唯一 head、head canary 和已知旧基线升级均通过，旧基线角色回填为 `user`。
+- **安全与清理**：只使用专用假配置和不可外连的模型地址，未发送业务查询或调用
+  外部模型/搜索；容器、网络、匿名卷、临时配置及生成物完整清理。
+- **保留边界**：不关闭 `AUD-006`、`AUD-007`，不部署生产、不重写 Git 历史；
+  Hosted 新 Job 在当前 change 推送前只可记为待验证。
 
 ### 5.2 `stabilize-delivery-baseline`
 
-- **状态**：候选，未启动；近期 P2 收敛项，可与 P0 Agent 边界治理并行。
+- **状态**：候选，未启动；风险驱动执行顺序第 5，P2 收敛不抢占 P0/P1。
 - **目标**：建立后端依赖可重复安装、关键前端工作流自动回归和 `utils/` 明确归属的
   统一交付基线。
 - **映射**：`AUD-006`（P2，Python 依赖、包元数据、执行契约及镜像/Actions
@@ -146,7 +141,7 @@ flowchart TD
 
 ### 5.3 `secure-agent-tenant-boundaries`
 
-- **状态**：候选，未启动；`restore-runtime-release-gates` 后的 P0 阻塞项。
+- **状态**：候选，未启动；风险驱动执行顺序第 1，是下一 P0 阻塞项。
 - **目标**：让第一方身份贯穿 FastAPI Agent 入口、LangGraph run/thread、缓存和
   浏览器连接，阻止匿名调用、跨租户线程访问及 Key 被发送到非信任地址。
 - **映射**：`AUD-001`（P0，Agent/LangGraph 多租户边界缺失）、`AUD-003`
@@ -171,7 +166,7 @@ flowchart TD
 
 ### 5.4 `isolate-file-ingestion`
 
-- **状态**：候选，未启动；租户边界后的可并行近期项。
+- **状态**：候选，未启动；风险驱动执行顺序第 2，租户边界后的 P0/P2 项。
 - **目标**：以租户所有的受管理上传替代任意本地路径读取，并对文件类型、大小、
   生命周期和解析行为实施服务端限制。
 - **映射**：`AUD-002`（P0，文档工具可读取任意可见路径）、`AUD-005`（P2，上传
@@ -196,7 +191,7 @@ flowchart TD
 
 ### 5.5 `bound-agent-resource-use`
 
-- **状态**：候选，未启动；租户边界后的可并行近期项。
+- **状态**：候选，未启动；风险驱动执行顺序第 3，租户边界后的 P1/P2 项。
 - **目标**：为 Agent、模型与工具建立端到端预算，恢复 Redis 故障后的受控行为，
   并让健康端点反映真实的存活/就绪状态。
 - **映射**：`AUD-004`（P1，Agent/工具缺少完整执行预算）、`AUD-008`（P1，Redis
@@ -222,7 +217,7 @@ flowchart TD
 
 ### 5.6 `prove-data-recovery`
 
-- **状态**：候选，未启动；近期并行项。
+- **状态**：候选，未启动；风险驱动执行顺序第 4，近期 P1 并行项。
 - **目标**：在真实 MySQL 契约上证明迁移前备份、失败恢复和恢复后数据一致性，而
   不再只依赖 SQLite schema 测试与自动 stamp 假设。
 - **映射**：`AUD-007`（P1，迁移/stamp 缺少生产等价保护和恢复证据）、`RR-001`
@@ -246,7 +241,7 @@ flowchart TD
 
 ### 6.1 `harden-identity-administration`
 
-- **状态**：候选，未启动；可在 Agent 租户工作旁路并行，但必须在数据分析前完成。
+- **状态**：候选，未启动；风险驱动执行顺序第 6，必须在数据分析前完成。
 - **目标**：补齐管理员连续性、密码输入边界和用途分离的身份摘要密钥管理，使审计
   与限流身份引用不依赖共用密钥或可枚举的无密钥摘要。
 - **映射**：`AUD-012`（P2，审计身份引用与 JWT 签名共用密钥）、`AUD-016`
@@ -270,7 +265,7 @@ flowchart TD
 
 ### 6.2 `paginate-session-history`
 
-- **状态**：候选，未启动；中期可并行项。
+- **状态**：候选，未启动；风险驱动执行顺序第 7，中期可并行项。
 - **目标**：为会话列表和消息历史建立有界、稳定且保持所有权过滤的分页契约。
 - **映射**：`AUD-010`（P2，第一方会话/消息与前端线程历史缺少完整分页）；原
   `AUD-013`（前端线程分页）作为同一分页根因合并到 `AUD-010`，统一归属本迭代。
@@ -288,7 +283,7 @@ flowchart TD
 
 ### 6.3 `deliver-data-analysis-reports`
 
-- **状态**：候选，未启动且保持锁定；不是当前已实现能力。
+- **状态**：候选，未启动且保持锁定；风险驱动执行顺序第 8，不是当前已实现能力。
 - **目标**：在受管理文件和有界执行基础上交付可追溯的数据导入、分析、图表与报告
   闭环。
 - **映射**：产品能力候选，无新增 `AUD`、`RR` 或 `DEC`；只消费前置迭代的验收
@@ -314,7 +309,7 @@ flowchart TD
 
 ### 7.1 `rewrite-credential-history`
 
-- **状态**：长期候选，延期；普通业务迭代不得自动触发。
+- **状态**：长期候选，延期；风险驱动执行顺序第 9，普通业务迭代不得自动触发。
 - **目标**：在协作者和镜像引用可控时，决定并执行历史敏感值清理，或由风险所有者
   正式接受保留历史的残余风险。
 - **映射**：`RR-002`（已轮换凭据仍存在于 Git 历史）。
@@ -333,8 +328,8 @@ flowchart TD
 
 ### 7.2 `define-production-hosting-boundary`
 
-- **状态**：长期候选，延期；当前只声明 local-only/受控网络能力，不声明生产托管
-  就绪。
+- **状态**：长期候选，延期；风险驱动执行顺序第 10。当前只声明 local-only/受控
+  网络能力，不声明生产托管就绪。
 - **目标**：决定项目继续保持 local-only，还是建立受支持的生产托管安全与运维
   边界。
 - **映射**：`RR-003`（local-only 假设尚未形成可强制的部署边界）、`DEC-003`
@@ -355,7 +350,8 @@ flowchart TD
 
 ### 7.3 `persist-compliance-audit-records`
 
-- **状态**：长期平台候选，延期；当前有界本地日志不等于长期或不可变审计存储。
+- **状态**：长期平台候选，延期；风险驱动执行顺序第 11。当前有界本地日志不等于
+  长期或不可变审计存储。
 - **目标**：仅在合规与保留要求明确后，引入访问受控、可验证完整性且成本有界的
   长期审计记录。
 - **映射**：`RR-005`（审计事件仅保存在有界本地/容器日志）。
@@ -373,20 +369,27 @@ flowchart TD
 - **停止条件**：无法证明身份脱敏、访问最小化、密钥隔离、驻留/删除合规或故障
   背压不会阻断核心服务时停止，并继续使用当前有界本地基线。
 
-## 8. 审计问题到 Roadmap 的唯一映射
+## 8. 审计问题状态与 Roadmap 唯一映射
+
+### 8.1 当前工作树已关闭
+
+| 审计 ID | Spec 最终 severity | 完成 change-id | 当前状态 |
+| --- | --- | --- | --- |
+| `AUD-014` | `P0` | `restore-runtime-release-gates` | 镜像迁移资产及空库/head/已知旧基线本地容器证据通过，已关闭 |
+| `AUD-011` | `P2` | `restore-runtime-release-gates` | Container Smoke 工作流与本地五服务等价证据完成，已关闭；Hosted 新 Job 待推送验证 |
+| `AUD-015` | `P2` | `restore-runtime-release-gates` | Git 跟踪及非忽略待提交文本扫描、二进制与脱敏测试通过，已关闭 |
+
+### 8.2 当前开放 15 项
 
 | 审计 ID | Spec 最终 severity | Roadmap change-id | 处置 |
 | --- | --- | --- | --- |
-| `AUD-014` | `P0` | `restore-runtime-release-gates` | 修复当前镜像缺失的运行/迁移资产 |
 | `AUD-001` | `P0` | `secure-agent-tenant-boundaries` | 修复 Agent/LangGraph 多租户身份与所有权边界 |
 | `AUD-003` | `P0` | `secure-agent-tenant-boundaries` | 收敛浏览器 Agent 地址与 API Key 信任边界 |
 | `AUD-002` | `P0` | `isolate-file-ingestion` | 取消任意路径读取，改为租户受管理文件 |
 | `AUD-004` | `P1` | `bound-agent-resource-use` | 增加端到端执行、调用、临时资源与输出预算 |
 | `AUD-007` | `P1` | `prove-data-recovery` | 用 MySQL 证明迁移保护、备份和恢复 |
 | `AUD-008` | `P1` | `bound-agent-resource-use` | 明确 Redis 降级、重连和限流恢复语义 |
-| `AUD-015` | `P2` | `restore-runtime-release-gates` | 扩大全仓库凭据扫描且保持输出脱敏 |
 | `AUD-006` | `P2` | `stabilize-delivery-baseline` | 锁定 Python 依赖、包元数据、执行契约及镜像/Actions；`AUD-021` 已并入 `AUD-006` |
-| `AUD-011` | `P2` | `restore-runtime-release-gates` | CI 构建当前镜像并运行五服务冒烟 |
 | `AUD-020` | `P2` | `stabilize-delivery-baseline` | 增加前端关键工作流行为测试 |
 | `AUD-005` | `P2` | `isolate-file-ingestion` | 增加服务端文件类型、大小、配额与生命周期限制 |
 | `AUD-009` | `P2` | `bound-agent-resource-use` | 拆分存活/就绪并覆盖关键依赖与配置 |
@@ -398,8 +401,9 @@ flowchart TD
 
 原 `AUD-013`（前端线程分页）作为同一分页根因合并到 `AUD-010`，统一归属
 `paginate-session-history`；`AUD-021` 已并入 `AUD-006`，二者不重复计数。仅
-`AUD-019` 经双重验证为 0/2 并排除，不创建 Roadmap 工作。上表保持 18 个 2/2
-高置信度审计问题的完整唯一映射，统计为 **4 P0 / 3 P1 / 10 P2 / 1 P3**。
+`AUD-019` 经双重验证为 0/2 并排除，不创建 Roadmap 工作。第 8.1 节 3 项与第
+8.2 节 15 项共同保留历史 18 项的唯一映射；当前开放统计为
+**3 P0 / 3 P1 / 8 P2 / 1 P3**。
 
 ## 9. 剩余风险与开放决策映射
 
@@ -420,8 +424,8 @@ flowchart TD
 ## 10. 全局停止与调整规则
 
 - 任一迭代发现真实凭据、跨租户访问、未经授权的文件/数据读取、不可恢复数据变化、
-  无法取消的高成本执行或敏感日志外发时，立即停止并回到
-  `restore-runtime-release-gates` 或对应安全前置。
+  无法取消的高成本执行或敏感日志外发时，立即停止并回到已建立的发布门禁或对应
+  安全前置。
 - 任一硬依赖回归都会重新锁定 `deliver-data-analysis-reports`；不得以风险接受
   绕过租户、文件、执行或恢复四条前置。
 - 优先级、依赖、范围或风险接受发生变化时，必须同步正式 Spec、Roadmap 和变更

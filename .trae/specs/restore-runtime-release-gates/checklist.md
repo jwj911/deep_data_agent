@@ -1,0 +1,27 @@
+# 验收清单
+
+- [x] 迭代开始时记录分支、完整 HEAD、工作区状态和既有 Hosted CI，未覆盖或回滚并行用户改动。
+- [x] Docker Linux Engine、可用磁盘、端口和专用假配置满足本地冒烟前置，未读取或输出本地 `.env` 真实值。
+- [x] `data_agent/Dockerfile` 在固定项目根中包含 `alembic.ini`、`migrations/env.py`、迁移模板和全部版本文件。
+- [x] 后端镜像构建上下文不包含 `.env`、虚拟环境、测试缓存、前端目录、Git 元数据或其他非运行资产。
+- [x] 发布契约能拒绝缺少任一 Alembic 配置、迁移目录或版本文件复制契约的 Dockerfile。
+- [x] 镜像资产契约测试覆盖成功与失败分支，错误只输出稳定规则名、路径和行号。
+- [x] 当前后端镜像连接空 MySQL 时可在 FastAPI 就绪前迁移到仓库唯一 head。
+- [x] 当前后端镜像连接已在 head 的数据库重复启动保持幂等，既有业务数据不变。
+- [x] 当前后端镜像可将结构完全匹配的已知旧基线 fixture 升级到唯一 head，fixture 数据保持不变。
+- [x] 凭据内容扫描从 Git 跟踪文件及非忽略的待提交文件发现候选，不再由固定目录前缀决定覆盖范围。
+- [x] `scripts/`、`migrations/`、`.github/`、`tests/`、`.trae/` 和新顶层目录中的无效凭据 canary 均使检查失败。
+- [x] 扫描器通过 NUL/UTF-8 判定稳定跳过二进制或不可解码文件，并允许合法占位值与拆分测试样例。
+- [x] 凭据扫描失败输出仅含规则名、相对路径和行号，不回显完整匹配值、文件内容或环境变量。
+- [x] 既有 `.env`、生成物、迁移 head、RBAC、日志、Compose 地址和前端质量契约继续通过，无扫描范围回退。
+- [x] GitHub Actions 的 Container Smoke Job 在 `main` 推送和合并请求上触发，并绑定当前目标 SHA。
+- [x] Container Smoke Job 从干净 checkout 构建当前后端和前端镜像，不复用无法追溯的本地源码镜像。
+- [x] MySQL、Redis、FastAPI、LangGraph 和 Frontend 五个服务在有界等待时间内全部达到健康状态。
+- [x] 容器冒烟可访问 FastAPI `/api/health`、LangGraph `/info` 和前端 `/data_copilot/`，且不发送业务查询。
+- [x] MySQL `alembic_version` 存在且仅有一个值，并与仓库静态解析的唯一 migration head 完全一致。
+- [x] 本地与 Hosted 容器冒烟仅使用专用假凭据和脱敏 fixture，不调用真实模型、搜索服务或生产数据。
+- [x] 任一构建、启动、迁移或健康失败会使 Container Smoke Job 返回非零，并仅输出有界、脱敏的状态与日志摘要。
+- [x] Container Smoke Job 在成功、失败或取消后均删除容器、网络、匿名卷和临时配置，不污染后续 Job。
+- [x] Python 3.12 全量 pytest、isort、发布契约、Alembic 校验、Compose 解析和 `git diff --check` 全部通过。
+- [x] 前端 typecheck、零警告 lint、format:check、build；生成物已清理，README、AGENTS、项目分析、Roadmap、CHANGELOG 与实际结果一致。
+- [ ] 本轮原子提交已推送到 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 四个 Hosted Job 全部成功。

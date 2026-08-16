@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,8 @@ from scripts import check_release_contracts as contracts
 NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
+DOCKERIGNORE_PATH = ".dockerignore"
+DOCKERFILE_PATH = "data_agent/Dockerfile"
 MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 USER_MODEL_PATH = "data_agent/models/user.py"
 AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
@@ -15,6 +18,8 @@ REQUIRED_SCAN_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
     COMPOSE_PATH,
+    DOCKERIGNORE_PATH,
+    DOCKERFILE_PATH,
     USER_MODEL_PATH,
     AUDIT_MODULE_PATH,
     EVENTS_MODULE_PATH,
@@ -81,6 +86,34 @@ services:
   frontend:
     logging: *bounded-logging
 """
+VALID_DOCKERIGNORE = """\
+**
+!requirements.txt
+!data_agent/
+!data_agent/**
+!langgraph.json
+!alembic.ini
+!migrations/
+!migrations/**
+
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.log
+"""
+VALID_DOCKERFILE = """\
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt ./
+COPY data_agent ./data_agent
+COPY alembic.ini ./
+COPY migrations ./migrations
+COPY langgraph.json ./
+"""
 VALID_USER_MODEL = """\
 class UserRole:
     USER = "user"
@@ -115,10 +148,28 @@ def _write(root: Path, relative_path: str, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _write_bytes(root: Path, relative_path: str, content: bytes) -> None:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
+def _git(root: Path, *arguments: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+    )
+
+
 def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, NEXT_CONFIG_PATH, VALID_NEXT_CONFIG)
     _write(root, ENV_EXAMPLE_PATH, VALID_ENV_EXAMPLE)
     _write(root, COMPOSE_PATH, VALID_COMPOSE)
+    _write(root, DOCKERIGNORE_PATH, VALID_DOCKERIGNORE)
+    _write(root, DOCKERFILE_PATH, VALID_DOCKERFILE)
     _write(root, USER_MODEL_PATH, VALID_USER_MODEL)
     _write(root, AUDIT_MODULE_PATH, VALID_AUDIT_MODULE)
     _write(root, EVENTS_MODULE_PATH, VALID_EVENTS_MODULE)
@@ -175,6 +226,325 @@ def test_minimal_repository_and_tracked_file_contracts(tmp_path):
     ]
 
 
+def _dockerignore_violations(
+    violations,
+) -> list[tuple[str, str, int]]:
+    return [
+        (item.rule, item.path, item.line)
+        for item in violations
+        if item.path == DOCKERIGNORE_PATH
+    ]
+
+
+def test_dockerignore_runtime_allowlist_satisfies_contract(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _dockerignore_violations(violations) == []
+
+
+@pytest.mark.parametrize(
+    ("required_line", "expected_rule"),
+    [
+        ("**\n", "DOCKERIGNORE_DEFAULT_DENY"),
+        ("!requirements.txt\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!data_agent/\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!data_agent/**\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!langgraph.json\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!alembic.ini\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!migrations/\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("!migrations/**\n", "DOCKERIGNORE_REQUIRED_ALLOW"),
+        ("**/__pycache__\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+        ("**/*.py[cod]\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+        ("**/.pytest_cache\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+        ("**/.mypy_cache\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+        ("**/.ruff_cache\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+        ("**/*.log\n", "DOCKERIGNORE_REQUIRED_EXCLUDE"),
+    ],
+    ids=[
+        "default-deny",
+        "requirements",
+        "data-agent-parent",
+        "data-agent-tree",
+        "langgraph",
+        "alembic",
+        "migrations-parent",
+        "migrations-tree",
+        "pycache",
+        "bytecode",
+        "pytest-cache",
+        "mypy-cache",
+        "ruff-cache",
+        "logs",
+    ],
+)
+def test_missing_dockerignore_allowlist_rule_is_rejected(
+    tmp_path,
+    required_line,
+    expected_rule,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid = VALID_DOCKERIGNORE.replace(required_line, "", 1)
+    _write(tmp_path, DOCKERIGNORE_PATH, invalid)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _dockerignore_violations(violations) == [
+        (expected_rule, DOCKERIGNORE_PATH, 1)
+    ]
+
+
+def test_dockerignore_comment_does_not_satisfy_required_allow(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid = VALID_DOCKERIGNORE.replace(
+        "!requirements.txt\n",
+        "# !requirements.txt\n",
+    )
+    _write(tmp_path, DOCKERIGNORE_PATH, invalid)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _dockerignore_violations(violations) == [
+        ("DOCKERIGNORE_REQUIRED_ALLOW", DOCKERIGNORE_PATH, 1)
+    ]
+
+
+def test_dockerignore_parser_accepts_comments_and_equivalent_paths(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    valid = (
+        "# !README.md remains excluded from the runtime context.\n"
+        + VALID_DOCKERIGNORE.replace(
+            "!requirements.txt\n",
+            "  !/requirements.txt/  \n",
+        ).replace(
+            "!data_agent/\n",
+            "!/data_agent/\n",
+        )
+    )
+    _write(tmp_path, DOCKERIGNORE_PATH, valid)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _dockerignore_violations(violations) == []
+
+
+@pytest.mark.parametrize(
+    ("invalid", "expected_rule"),
+    [
+        (
+            VALID_DOCKERIGNORE.replace(
+                "!data_agent/\n!data_agent/**\n",
+                "!data_agent/**\n!data_agent/\n",
+            ),
+            "DOCKERIGNORE_PARENT_ALLOW_ORDER",
+        ),
+        (
+            VALID_DOCKERIGNORE.replace("**/*.log\n", "").replace(
+                "**\n",
+                "**\n**/*.log\n",
+                1,
+            ),
+            "DOCKERIGNORE_EXCLUDE_ORDER",
+        ),
+    ],
+    ids=["parent-before-tree", "cleanup-after-allows"],
+)
+def test_dockerignore_rule_order_is_enforced(
+    tmp_path,
+    invalid,
+    expected_rule,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(tmp_path, DOCKERIGNORE_PATH, invalid)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        item.rule
+        for item in violations
+        if item.path == DOCKERIGNORE_PATH
+    ] == [expected_rule]
+
+
+@pytest.mark.parametrize(
+    "unexpected_allow",
+    [
+        "README.md",
+        "AGENTS.md",
+        "CHANGELOG.md",
+        "scripts/**",
+        "utils/**",
+        "tests/**",
+        "agent_chatui/**",
+        ".trae/**",
+        ".env",
+        ".git/**",
+        ".venv/**",
+        "data_agent/__pycache__/**",
+        "data_agent/debug.log",
+    ],
+    ids=[
+        "readme",
+        "agents",
+        "changelog",
+        "scripts",
+        "utils",
+        "tests",
+        "frontend",
+        "trae",
+        "env",
+        "git",
+        "venv",
+        "cache",
+        "log",
+    ],
+)
+def test_dockerignore_non_runtime_allow_is_rejected(
+    tmp_path,
+    unexpected_allow,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid = VALID_DOCKERIGNORE + f"!{unexpected_allow}\n"
+    _write(tmp_path, DOCKERIGNORE_PATH, invalid)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert _dockerignore_violations(violations) == [
+        (
+            "DOCKERIGNORE_NON_RUNTIME_ALLOW",
+            DOCKERIGNORE_PATH,
+            len(VALID_DOCKERIGNORE.splitlines()) + 1,
+        )
+    ]
+
+
+def test_dockerignore_failure_output_contains_only_location(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid = VALID_DOCKERIGNORE + "!README-private-details.md\n"
+    _write(tmp_path, DOCKERIGNORE_PATH, invalid)
+    violations = _check(tmp_path, scan_files=scan_files)
+    monkeypatch.setattr(
+        contracts,
+        "check_repository",
+        lambda root: violations,
+    )
+
+    assert contracts.main() == 1
+
+    captured = capsys.readouterr()
+    line = len(VALID_DOCKERIGNORE.splitlines()) + 1
+    assert captured.out == ""
+    assert captured.err == (
+        f"DOCKERIGNORE_NON_RUNTIME_ALLOW {DOCKERIGNORE_PATH}:{line}\n"
+    )
+    assert "README-private-details.md" not in captured.err
+
+
+def test_dockerfile_parent_migrations_copy_satisfies_asset_contract(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert not [
+        item for item in violations if item.rule.startswith("DOCKERFILE_")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "expected_rule"),
+    [
+        (
+            VALID_DOCKERFILE.replace("COPY alembic.ini ./\n", ""),
+            "DOCKERFILE_ALEMBIC_INI_COPY",
+        ),
+        (
+            VALID_DOCKERFILE.replace(
+                "COPY migrations ./migrations\n",
+                "COPY migrations/versions ./migrations/versions\n",
+            ),
+            "DOCKERFILE_MIGRATIONS_COPY",
+        ),
+        (
+            VALID_DOCKERFILE.replace(
+                "COPY migrations ./migrations\n",
+                "COPY migrations/env.py ./migrations/env.py\n"
+                "COPY migrations/script.py.mako ./migrations/script.py.mako\n",
+            ),
+            "DOCKERFILE_MIGRATION_VERSIONS_COPY",
+        ),
+    ],
+    ids=["alembic-ini", "migration-root-assets", "migration-versions"],
+)
+def test_missing_dockerfile_migration_asset_is_rejected(
+    tmp_path,
+    dockerfile,
+    expected_rule,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(tmp_path, DOCKERFILE_PATH, dockerfile)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path, item.line)
+        for item in violations
+        if item.rule.startswith("DOCKERFILE_")
+    ] == [(expected_rule, DOCKERFILE_PATH, 1)]
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        VALID_DOCKERFILE.replace(
+            "COPY alembic.ini ./\n",
+            "COPY alembic.ini /tmp/\n",
+        ).replace(
+            "COPY migrations ./migrations\n",
+            "COPY migrations /tmp/migrations\n",
+        ),
+        VALID_DOCKERFILE
+        + "\nFROM python:3.12-slim\n"
+        "WORKDIR /app\n"
+        "COPY data_agent ./data_agent\n",
+        VALID_DOCKERFILE.replace(
+            "COPY alembic.ini ./\n",
+            "# COPY alembic.ini ./\n"
+            'RUN echo "COPY alembic.ini ./"\n'
+            "COPY alembic.ini.backup ./alembic.ini\n",
+        ).replace(
+            "COPY migrations ./migrations\n",
+            "# COPY migrations ./migrations\n"
+            'RUN echo "COPY migrations ./migrations"\n'
+            "COPY migrations-backup ./migrations\n",
+        ),
+    ],
+    ids=["wrong-destination", "earlier-stage", "comments-and-similar-paths"],
+)
+def test_dockerfile_copy_contract_cannot_be_bypassed(
+    tmp_path,
+    dockerfile,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(tmp_path, DOCKERFILE_PATH, dockerfile)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        item.rule
+        for item in violations
+        if item.rule.startswith("DOCKERFILE_")
+    ] == [
+        "DOCKERFILE_ALEMBIC_INI_COPY",
+        "DOCKERFILE_MIGRATIONS_COPY",
+        "DOCKERFILE_MIGRATION_VERSIONS_COPY",
+    ]
+
+
 @pytest.mark.parametrize(
     "keyword",
     ["ignoreBuildErrors", "ignoreDuringBuilds"],
@@ -192,6 +562,40 @@ def test_next_build_bypass_is_rejected(tmp_path, keyword):
     assert [
         (item.rule, item.path, item.line) for item in violations
     ] == [("NEXT_BUILD_BYPASS", NEXT_CONFIG_PATH, 1)]
+
+
+def test_required_files_are_read_outside_explicit_scan_set(tmp_path):
+    _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        NEXT_CONFIG_PATH,
+        "const nextConfig = { ignoreBuildErrors: true };\n",
+    )
+
+    violations = _check(tmp_path, scan_files=set())
+
+    assert [
+        (item.rule, item.path, item.line) for item in violations
+    ] == [("NEXT_BUILD_BYPASS", NEXT_CONFIG_PATH, 1)]
+
+
+def test_explicit_file_sets_do_not_invoke_git(
+    tmp_path,
+    monkeypatch,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+
+    def fail_if_called(root):
+        raise AssertionError("explicit file sets must not invoke Git")
+
+    monkeypatch.setattr(contracts, "_git_tracked_files", fail_if_called)
+    monkeypatch.setattr(contracts, "_git_scan_files", fail_if_called)
+
+    assert contracts.check_repository(
+        tmp_path,
+        tracked_files=(),
+        scan_files=scan_files,
+    ) == []
 
 
 def test_legacy_login_variable_and_main_output_are_redacted(
@@ -376,6 +780,99 @@ def _credential_samples(group: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
+    "source_path",
+    [
+        "scripts/canary.py",
+        "migrations/canary.py",
+        ".github/workflows/canary.yml",
+        "tests/canary.txt",
+        ".trae/specs/canary.md",
+        "future-area/CREDENTIALS",
+    ],
+    ids=[
+        "scripts",
+        "migrations",
+        "github",
+        "tests",
+        "trae",
+        "new-top-level",
+    ],
+)
+def test_explicit_scan_files_cover_repository_paths(tmp_path, source_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    canary = "sk-" + "A" * 24
+    _write(tmp_path, source_path, f'value = "{canary}"\n')
+    scan_files.add(source_path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path, item.line) for item in violations
+    ] == [("CREDENTIAL_PATTERN", source_path, 1)]
+
+
+def test_git_discovery_scans_tracked_and_nonignored_untracked_files(tmp_path):
+    _create_minimal_repository(tmp_path)
+    canary = "sk-" + "A" * 24
+    tracked_path = "tracked/canary.txt"
+    untracked_path = "pending/canary.txt"
+    _write(tmp_path, ".gitignore", ".env\n")
+    _write(tmp_path, tracked_path, f'tracked = "{canary}"\n')
+    _write(tmp_path, ".env", f'IGNORED = "{canary}"\n')
+    _git(tmp_path, "init", "--quiet")
+    _git(tmp_path, "add", ".")
+    _write(tmp_path, untracked_path, f'untracked = "{canary}"\n')
+
+    violations = contracts.check_repository(tmp_path)
+
+    assert [
+        (item.rule, item.path, item.line)
+        for item in violations
+        if item.rule == "CREDENTIAL_PATTERN"
+    ] == [
+        ("CREDENTIAL_PATTERN", untracked_path, 1),
+        ("CREDENTIAL_PATTERN", tracked_path, 1),
+    ]
+    assert not [item for item in violations if item.path == ".env"]
+
+
+def test_binary_scan_candidates_are_skipped(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    canary = ("sk-" + "A" * 24).encode()
+    nul_path = "assets/nul.bin"
+    invalid_utf8_path = "assets/invalid-utf8.bin"
+    _write_bytes(tmp_path, nul_path, canary + b"\0payload")
+    _write_bytes(tmp_path, invalid_utf8_path, b"\xff" + canary)
+    scan_files.update({nul_path, invalid_utf8_path})
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert violations == []
+
+
+def test_placeholders_and_split_canaries_are_allowed(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    placeholder_path = "examples/placeholders.txt"
+    split_path = "examples/split_canary.py"
+    _write(
+        tmp_path,
+        placeholder_path,
+        "MOONSHOT_API_KEY=your_moonshot_api_key_here\n"
+        "Authorization=Bearer <token>\n",
+    )
+    _write(
+        tmp_path,
+        split_path,
+        'prefix = "sk-"\nvalue = prefix + "A" * 24\n',
+    )
+    scan_files.update({placeholder_path, split_path})
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert violations == []
+
+
+@pytest.mark.parametrize(
     "credential_group",
     ["api-keys", "tokens"],
     ids=["api-key-patterns", "token-patterns"],
@@ -404,6 +901,31 @@ def test_common_credential_patterns_are_reported_without_values(
         ("CREDENTIAL_PATTERN", source_path, 1),
         ("CREDENTIAL_PATTERN", source_path, 2),
     ]
+
+
+def test_credential_failure_output_does_not_include_matched_value(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    source_path = "new-area/canary.txt"
+    canary = "sk-" + "A" * 24
+    _write(tmp_path, source_path, f'value = "{canary}"\n')
+    scan_files.add(source_path)
+    violations = _check(tmp_path, scan_files=scan_files)
+    monkeypatch.setattr(
+        contracts,
+        "check_repository",
+        lambda root: violations,
+    )
+
+    assert contracts.main() == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"CREDENTIAL_PATTERN {source_path}:1\n"
+    assert canary not in captured.err
 
 
 def _migration_head_rules(

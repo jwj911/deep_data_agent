@@ -99,3 +99,149 @@ jobs:
 
       - name: Check release contracts
         run: python scripts/check_release_contracts.py
+
+  container-smoke:
+    name: Container Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI_ENV_FILE: ${{ github.workspace }}/.env
+      COMPOSE_FILE: docker-config/docker-compose.yml
+      COMPOSE_PROJECT_NAME: dda-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out target SHA
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify checked out target SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(timeout 10s git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Create isolated CI configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          model_key="ci-model-$(openssl rand -hex 16)"
+          search_key="ci-search-$(openssl rand -hex 16)"
+          jwt_key="$(openssl rand -hex 32)"
+          database_password="$(openssl rand -hex 24)"
+          database_name="smoke_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          {
+            printf 'MOONSHOT_API_KEY=%s\n' "$model_key"
+            printf 'TAVILY_API_KEY=%s\n' "$search_key"
+            printf 'MODEL_NAME=ci-disabled-model\n'
+            printf 'MODEL_BASE_URL=http://127.0.0.1:9/v1\n'
+            printf 'MODEL_TEMPERATURE=0\n'
+            printf 'MYSQL_ROOT_PASSWORD=%s\n' "$database_password"
+            printf 'MYSQL_DATABASE=%s\n' "$database_name"
+            printf 'COMPOSE_DATABASE_URL=mysql+pymysql://root:%s@mysql:3306/%s\n' \
+              "$database_password" "$database_name"
+            printf 'COMPOSE_REDIS_URL=redis://redis:6379/0\n'
+            printf 'JWT_SECRET_KEY=%s\n' "$jwt_key"
+            printf 'JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5\n'
+            printf 'CORS_ALLOWED_ORIGINS=http://localhost:3000\n'
+            printf 'RATE_LIMIT_ENABLED=false\n'
+            printf 'ENABLE_CODE_EXECUTION=false\n'
+            printf 'NEXT_PUBLIC_API_URL=http://localhost:2024\n'
+            printf 'NEXT_PUBLIC_ASSISTANT_ID=agent\n'
+            printf 'NEXT_PUBLIC_REST_API_URL=http://localhost:8000\n'
+            printf 'DOCKER_LOG_MAX_SIZE=10m\n'
+            printf 'DOCKER_LOG_MAX_FILES=3\n'
+          } > "$CI_ENV_FILE"
+
+      - name: Build images and verify empty database
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 360s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            up --build -d --wait --wait-timeout 300
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            verify --scenario empty
+
+      - name: Verify restart at migration head
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            seed-head
+          timeout 60s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            restart --timeout 10 fastapi
+          timeout 360s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            up -d --wait --wait-timeout 300
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            verify --scenario head
+
+      - name: Verify upgrade from known legacy baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 60s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            down --volumes --remove-orphans --timeout 10
+          timeout 360s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            up -d --wait --wait-timeout 300 mysql redis
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            prepare-legacy
+          timeout 360s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            up -d --wait --wait-timeout 300
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            verify --scenario legacy
+
+      - name: Print bounded redacted diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          timeout 210s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            diagnostics || true
+
+      - name: Clean up container smoke resources
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          timeout 60s docker compose \
+            --env-file "$CI_ENV_FILE" \
+            -f "$COMPOSE_FILE" \
+            -p "$COMPOSE_PROJECT_NAME" \
+            down --volumes --remove-orphans --timeout 10 || true
+          rm -f "$CI_ENV_FILE"
