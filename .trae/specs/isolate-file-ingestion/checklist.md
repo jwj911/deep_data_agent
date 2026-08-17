@@ -24,4 +24,4 @@
 - [x] 双用户容器冒烟覆盖上传/列表/分析/删除、跨用户/管理员拒绝、恶意格式/超限拒绝、共享卷和无 Base64 thread。
 - [x] 容器测试只使用脱敏文本与假配置，不调用模型、搜索或生产数据；成功失败均清理容器、网络、卷、临时配置和文件。
 - [x] Python 3.12 全量 pytest、isort、发布契约、Alembic、Compose、`git diff --check` 及 Node 22/pnpm 10.5.1 四项前端门禁通过。
-- [ ] 提交已推送 `origin/main`，本地/远端 SHA 一致、工作区干净，implementation 与最终 HEAD 的 Hosted 四 Job 全部成功。
+- [x] 提交已推送 `origin/main`，本地/远端 SHA 一致、工作区干净，implementation 与最终 HEAD 的 Hosted 四 Job 全部成功。

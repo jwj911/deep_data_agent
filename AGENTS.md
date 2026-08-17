@@ -36,9 +36,10 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 5 个服务，并让 FastAPI/LangGraph 共享受管文件卷。
 
-仓库现有 10 个已完成 change-id；最近完成本地验收的是
+仓库现有 10 个已完成 change-id；最近完成本地与 Hosted 验收的是
 `.trae/specs/isolate-file-ingestion/`，以 owner 受管 UUID 文件替代任意服务器
-路径与浏览器 Base64 摄取。目标 SHA 的 Hosted 四 Job 证据在实现提交推送后补录。
+路径与浏览器 Base64 摄取。implementation SHA
+`9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 run `32008059164` 已成功。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
 历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
@@ -52,6 +53,10 @@ Roadmap 现有 9 个未启动候选，下一候选继续按风险驱动排序。
 构建已移除 Google Fonts 网络依赖。当前源码镜像的空库双用户受管文件、head 重启
 和 legacy 升级均通过；无凭据 Chromium mock 验证附件预览/删除。过程未调用外部
 模型/搜索或发送业务查询，容器、网络、卷、临时配置和生成物已完整清理。
+
+本轮 Hosted 证据为上述 SHA 的 Backend、Frontend、Release Contracts、Container
+Smoke 四个 Job 均为 `success`；Container Smoke 的空库双用户、head 重启、
+legacy 升级和 cleanup 均为 `success`。
 
 ## 3. 关键结构
 
@@ -251,7 +256,8 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 
 2026-08-17 的当前工作树已取得 Python 3.12.9 共 295 项测试、8 项迁移定向测试、
 Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无凭据 Chromium
-交互证据。目标 SHA 的 Hosted 四个 Job 待实现提交推送后补录。
+交互证据。implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85`
+的 Hosted 四个 Job 已在 run `32008059164` 验证成功。
 
 ## 7. 安全现状
 
@@ -321,5 +327,5 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
 - `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地与 Hosted 验收的
   Agent 第一方身份与租户边界规格。
-- `.trae/specs/isolate-file-ingestion/`：已完成本地验收、等待 Hosted 证据的
-  owner 受管文件与安全摄取规格。
+- `.trae/specs/isolate-file-ingestion/`：已完成本地与 Hosted 验收的 owner 受管
+  文件与安全摄取规格。

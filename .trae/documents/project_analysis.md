@@ -37,7 +37,7 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
 | 本地容器证据 | 当前源码五服务空库双用户、head 重启和已知 legacy 升级三场景通过。双用户场景新增上传/列表/分析/删除、FastAPI/LangGraph 共享卷工具读取、跨用户/管理员拒绝、非法 JSON、5 MiB 超限和 owner 删除不变性；原 Agent 隔离场景继续通过。 |
 | 外部调用与清理 | 容器验收只使用专用假配置和不可外连的模型地址，不发送业务查询，未调用真实模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置及前端生成物已完整清理。 |
-| Hosted CI 证据 | 前一 implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 已有 run `31994602064` 四 Job 成功；本 change-id 目标 SHA 尚未推送，不能复用前一 SHA 作为完成证据。 |
+| Hosted CI 证据 | implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 run `32008059164` 为 `completed/success`；Backend、Frontend、Release Contracts、Container Smoke 四个 Job 均成功，Container Smoke 的空库双用户、head 重启、legacy 升级和 cleanup 均成功。 |
 | 明确缺口 | 未执行真实模型/搜索/业务数据调用、完整浏览器 E2E、生产备份恢复、容量或并发压测；受管文件卷仍受 `RR-001` 约束。`AUD-006` 的可重复供应链、`AUD-007` 的未知 schema fail-closed 和 `langgraph-api 0.7.28` EOL 未由本轮关闭。 |
 
 ### 1.3 共识方法与严重度
@@ -198,7 +198,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
 | FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
 | 前端连接与静态质量门禁 | 固定 Agent/REST Origin，受管上传只写 UUID 引用；Node 22 四门禁和无凭据 Chromium 附件交互通过，构建无远程字体依赖。完整 Hosted 行为测试缺口仍见 `AUD-020`。 |
-| 本地与 Hosted 发布门禁 | 当前工作树后端、前端、契约及五服务三场景通过；本 change-id 的 Hosted 四 Job 等待目标 SHA 推送，不复用前一 SHA。 |
+| 本地与 Hosted 发布门禁 | 当前工作树后端、前端、契约及五服务三场景通过；implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 Hosted 四 Job 在 run `32008059164` 全部成功。 |
 
 ### 3.2 已实现但本轮未验证
 
@@ -648,6 +648,6 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. 前一 implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 已有
-   run `31994602064` 四 Job 证据；本 change-id 必须绑定新的 implementation SHA
-   重跑，补录前不得宣称 Hosted 完成。
+5. implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 run
+   `32008059164` 已验证 Backend、Frontend、Release Contracts、Container Smoke
+   四个 Hosted Job；后续候选仍必须绑定各自 SHA 重跑。

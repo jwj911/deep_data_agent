@@ -380,6 +380,11 @@ Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、`format:check
 该过程只使用专用假配置与脱敏文本，不发送业务查询、未调用模型或搜索外部服务；
 容器、网络、卷、临时配置及生成物均已清理。
 
+implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 GitHub Actions
+run `32008059164` 为 `completed/success`；Backend、Frontend、Release Contracts、
+Container Smoke 四个 Job 全部成功，Container Smoke 的空库双用户、head 重启、
+legacy 升级和 cleanup 均成功。
+
 前一 `restore-runtime-release-gates` implementation SHA
 `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
 `31959537002` 已为 `completed/success`。本 change-id implementation SHA
@@ -418,5 +423,5 @@ fail-closed 边界。
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
 - `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地与 Hosted 验收的
   Agent 第一方身份、租户所有权和固定浏览器 Origin 规格。
-- `.trae/specs/isolate-file-ingestion/`：已完成本地验收、等待目标 SHA Hosted
-  证据的 owner 受管文件、格式/配额和无 Base64 摄取规格。
+- `.trae/specs/isolate-file-ingestion/`：已完成本地与 Hosted 验收的 owner 受管
+  文件、格式/配额和无 Base64 摄取规格。

@@ -61,7 +61,7 @@
   - [x] SubTask 5.5: 增加发布契约，禁止 `FileReader.readAsDataURL`、新 Base64 上传、
     任意路径工具参数及缺失文件 API/配额/卷。
 
-- [ ] Task 6: 建立恶意输入、容器与全量发布实证。
+- [x] Task 6: 建立恶意输入、容器与全量发布实证。
   - [x] SubTask 6.1: 扩展确定性测试，覆盖无效 UTF-8、NUL、伪造 MIME、双扩展、
     JSON 失败、CSV 公式、超大/超量/总量、重复和部分失败。
   - [x] SubTask 6.2: 扩展 Container Smoke：双用户上传/列表/分析/删除，验证跨用户
@@ -74,7 +74,7 @@
     format:check、build，清理 `.next`、`out`、`*.tsbuildinfo`。
   - [x] SubTask 6.6: 更新 README、AGENTS、项目分析、Roadmap、CHANGELOG：关闭
     `AUD-002`/`AUD-005`，记录 DEC-004、BREAKING 格式变化及剩余风险。
-  - [ ] SubTask 6.7: 独立执行 `checklist.md` 25 项；失败项先新增修复任务并复验。
+  - [x] SubTask 6.7: 独立执行 `checklist.md` 25 项；失败项先新增修复任务并复验。
 
   本地证据：Python 3.12.9 全量 **295 passed**，迁移定向 **8 passed**；isort、
   发布契约、Alembic 唯一 head `b6f4e8c2a9d1`、Compose 与 `git diff --check`
@@ -82,16 +82,22 @@
   五服务空库双用户、head 重启、legacy 升级及无凭据 Chromium 附件交互通过，
   资源与临时配置已清理。安全复核无可利用发现。
 
-- [ ] Task 7: 创建原子提交、推送并完成 Hosted 闭环。
+- [x] Task 7: 创建原子提交、推送并完成 Hosted 闭环。
   - [x] SubTask 7.1: 复核暂存范围、凭据、受管样本和生成物，只包含本轮必要改动。
-  - [ ] SubTask 7.2: 创建 `isolate-file-ingestion` 原子实现提交；远端前进时安全整合
+  - [x] SubTask 7.2: 创建 `isolate-file-ingestion` 原子实现提交；远端前进时安全整合
     并重跑受影响门禁。
-  - [ ] SubTask 7.3: 推送 `main`，确认本地、origin 和 GitHub 完整 SHA 一致且工作区
+  - [x] SubTask 7.3: 推送 `main`，确认本地、origin 和 GitHub 完整 SHA 一致且工作区
     干净。
-  - [ ] SubTask 7.4: 通过 GitHub API 确认 implementation SHA 的 Backend、Frontend、
+  - [x] SubTask 7.4: 通过 GitHub API 确认 implementation SHA 的 Backend、Frontend、
     Release Contracts、Container Smoke 全部成功。
-  - [ ] SubTask 7.5: 同步最终证据和 25/25 状态，推送验收记录，并等待最终 HEAD 的
+  - [x] SubTask 7.5: 同步最终证据和 25/25 状态，推送验收记录，并等待最终 HEAD 的
     Hosted 四 Job 成功。
+
+  Hosted 证据：implementation SHA
+  `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 Release Readiness run
+  `32008059164` 为 `completed/success`；Backend、Frontend、Release Contracts、
+  Container Smoke 均为 `success`。Container Smoke 的空库双用户、head 重启、
+  legacy 升级和 cleanup 均为 `success`。
 
 # Task Dependencies
 

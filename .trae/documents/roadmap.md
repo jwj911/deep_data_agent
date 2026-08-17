@@ -5,8 +5,9 @@
 > `isolate-file-ingestion` 关闭 `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、
 > `AUD-003`、`AUD-002`、`AUD-005`，开放
 > **11 项：0 P0 / 3 P1 / 7 P2 / 1 P3**。本文现有 10 个已完成 change-id 和
-> 9 个未启动候选；生产发布仍为 **NO-GO**。新 change-id 已完成本地验收，
-> 目标 SHA 的 Hosted 四个 Job 待实现提交推送后补录。
+> 9 个未启动候选；生产发布仍为 **NO-GO**。implementation SHA
+> `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 Hosted 四个 Job 已在 run
+> `32008059164` 验证成功。
 
 ## 1. 使用与决策原则
 
@@ -35,7 +36,7 @@
 | 7 | `add-rbac-audit` | 增加 RBAC 与脱敏审计 | 固定 `user`/`admin` 角色、双层默认拒绝、人工管理员引导和 HMAC 身份引用 | 已完成 |
 | 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke | 已完成（本地与 Hosted 证据） |
 | 9 | `secure-agent-tenant-boundaries` | 保护 Agent 租户边界 | 第一方 JWT 贯穿 FastAPI/LangGraph，thread/run owner、租户缓存和固定浏览器 Origin | 已完成（本地与 Hosted 证据） |
-| 10 | `isolate-file-ingestion` | 隔离文件摄取 | owner 受管 UUID 文件、格式/配额/保留、无任意路径和无新 Base64 thread | 已完成（本地证据，Hosted 待补录） |
+| 10 | `isolate-file-ingestion` | 隔离文件摄取 | owner 受管 UUID 文件、格式/配额/保留、无任意路径和无新 Base64 thread | 已完成（本地与 Hosted 证据） |
 
 ## 3. 优先级依据
 
@@ -179,8 +180,7 @@ Mermaid 节点编号为准。
 
 ### 5.4 `isolate-file-ingestion`
 
-- **状态**：已完成本地验收；目标 SHA 的 Hosted 四个 Job 待推送后补录，不再计入
-  9 个未启动候选。
+- **状态**：已完成本地与 Hosted 验收；不再计入 9 个未启动候选。
 - **目标**：以租户所有的受管理上传替代任意本地路径读取，并对文件类型、大小、
   生命周期和解析行为实施服务端限制。
 - **映射**：`AUD-002`（P0，文档工具可读取任意可见路径）、`AUD-005`（P2，上传
@@ -197,6 +197,10 @@ Mermaid 节点编号为准。
 - **本地证据**：Python 3.12.9 下 295 项测试、迁移定向 8 项和全部静态门禁通过；
   Node 22/pnpm 10.5.1 四门禁通过，Google Fonts 网络依赖已移除。五服务空库双用户、
   head 重启、legacy 升级通过；无凭据 Chromium mock 验证附件预览/删除。
+- **Hosted 证据**：implementation SHA
+  `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 run `32008059164` 为
+  `completed/success`；Backend、Frontend、Release Contracts、Container Smoke
+  四个 Job 及空库双用户、head 重启、legacy 升级、cleanup 均成功。
 - **非目标**：不读取用户提供的服务器绝对路径；不支持任意文件格式、永久文档库、
   OCR/病毒平台或跨租户共享；不自动把真实业务文件发送给模型。
 - **验收门槛**：越权文件 ID、路径穿越、符号链接、伪造 MIME、超限文件、压缩炸弹

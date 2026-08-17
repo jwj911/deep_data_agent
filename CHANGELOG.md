@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-### 隔离文件摄取（2026-08-17，本地完成，Hosted 待补录）
+### 隔离文件摄取（2026-08-17，本地与 Hosted 完成）
 
 - `isolate-file-ingestion` 已完成本地验收，成为第 10 个已完成 change-id；Roadmap
   余下 9 个未启动候选。`DEC-004` 已确定 MySQL owner metadata + 受管共享卷 +
@@ -38,8 +38,10 @@
 - 历史 18 项新增关闭 `AUD-002`、`AUD-005`，当前开放
   **11 项：0 P0 / 3 P1 / 7 P2 / 1 P3**。生产仍为 **NO-GO**；`AUD-004`、
   `AUD-007`、`AUD-008` 三个 P1 及 `RR-001` 等边界未扩大。
-- 本 change-id 的 Hosted Backend、Frontend、Release Contracts、Container Smoke
-  必须绑定首次实现提交 SHA；推送前不复用前一 SHA 的成功记录。
+- implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 GitHub
+  Actions run `32008059164` 为 `completed/success`；Backend、Frontend、Release
+  Contracts、Container Smoke 四个 Job 全部成功，Container Smoke 的空库双用户、
+  head 重启、legacy 升级和 cleanup 均成功。
 
 ### 保护 Agent 租户边界（2026-08-17，本地与 Hosted 完成）
 
