@@ -4,8 +4,9 @@
 > `restore-runtime-release-gates` 和 `secure-agent-tenant-boundaries` 关闭
 > `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、`AUD-003`，开放
 > **13 项：1 P0 / 3 P1 / 8 P2 / 1 P3**。本文现有 9 个已完成 change-id 和
-> 10 个未启动候选；生产发布仍为 **NO-GO**。新 change-id 已完成本地验收，
-> 目标 SHA 的 Hosted 四个 Job 待首次实现提交推送后补录。
+> 10 个未启动候选；生产发布仍为 **NO-GO**。implementation SHA
+> `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 Hosted 四个 Job 已在 run
+> `31994602064` 验证成功。
 
 ## 1. 使用与决策原则
 
@@ -33,7 +34,7 @@
 | 6 | `add-versioned-migrations` | 增加版本化数据库迁移 | Alembic 单 head、全新库 upgrade、旧库 stamp 与 schema 漂移测试 | 已完成 |
 | 7 | `add-rbac-audit` | 增加 RBAC 与脱敏审计 | 固定 `user`/`admin` 角色、双层默认拒绝、人工管理员引导和 HMAC 身份引用 | 已完成 |
 | 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke | 已完成（本地与 Hosted 证据） |
-| 9 | `secure-agent-tenant-boundaries` | 保护 Agent 租户边界 | 第一方 JWT 贯穿 FastAPI/LangGraph，thread/run owner、租户缓存和固定浏览器 Origin | 已完成（本地证据，Hosted 待补录） |
+| 9 | `secure-agent-tenant-boundaries` | 保护 Agent 租户边界 | 第一方 JWT 贯穿 FastAPI/LangGraph，thread/run owner、租户缓存和固定浏览器 Origin | 已完成（本地与 Hosted 证据） |
 
 ## 3. 优先级依据
 
@@ -145,8 +146,7 @@ Mermaid 节点编号为准。
 
 ### 5.3 `secure-agent-tenant-boundaries`
 
-- **状态**：已完成本地验收；目标 SHA 的 Hosted 四个 Job 待推送后补录，不再计入
-  10 个未启动候选。
+- **状态**：已完成本地与 Hosted 验收；不再计入 10 个未启动候选。
 - **目标**：让第一方身份贯穿 FastAPI Agent 入口、LangGraph run/thread、缓存和
   浏览器连接，阻止匿名调用、跨租户线程访问及 Key 被发送到非信任地址。
 - **映射**：`AUD-001`（P0，Agent/LangGraph 多租户边界缺失）、`AUD-003`
@@ -164,6 +164,10 @@ Mermaid 节点编号为准。
   零警告 lint、format:check；五服务空库双用户、head 重启和 legacy 升级三场景
   通过。双用户场景覆盖固定 assistant、并发重复搜索、history/state/copy/读改删/
   create_run、管理员不绕过和无 MySQL 双写；全程未调用模型或搜索。
+- **Hosted 证据**：implementation SHA
+  `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run `31994602064` 为
+  `completed/success`；Backend、Frontend、Release Contracts、Container Smoke
+  四个 Job 及空库双用户、head 重启、legacy 升级、cleanup 均成功。
 - **依赖风险**：容器中的 `langgraph-api 0.7.28` 已 EOL，升级与兼容回归归入
   `AUD-006`/`stabilize-delivery-baseline`。
 - **非目标**：不引入组织层级、自定义角色、计费、多区域租户或第三方 SSO；不在

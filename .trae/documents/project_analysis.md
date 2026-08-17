@@ -33,11 +33,11 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 当前工作树 | `secure-agent-tenant-boundaries` 已实现第一方 LangGraph Auth、thread/run owner、FastAPI Agent 双层授权、租户缓存、前端固定 Origin、旧 API Key 清理、发布契约及双用户容器实证，并同步本报告、Roadmap、README、AGENTS、CHANGELOG 与 tasks。 |
 | Roadmap 状态 | 既有 8 个已完成 change-id，加上已完成本地验收的 `secure-agent-tenant-boundaries`，共 9 个；余下 10 个未启动候选。 |
 | 后端本地证据 | Python 3.12.9；`pytest -q` 共 **250 项通过**，其中 `tests/test_migrations.py` 迁移定向测试 **7 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
-| 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check` 通过。同一前端源码此前已通过 `build`；最终重试仅因本机到 Google Fonts 的连接重置失败，目标 SHA 仍以 Hosted Frontend Job 为最终构建证据。 |
+| 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check` 通过。同一前端源码此前已通过 `build`；最终重试仅因本机到 Google Fonts 的连接重置失败，目标 SHA 的 Hosted Frontend Job 已完成生产构建并成功。 |
 | 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
 | 本地容器证据 | Docker Linux Engine 从当前源码重建前后端镜像；五服务健康，空库双用户、head 重启和已知旧基线升级三场景通过。双用户场景验证 LangGraph 匿名 403、FastAPI Agent 匿名 401、固定 assistant、伪造 owner 覆盖、并发重复搜索、跨用户 history/state/copy/读改删/create_run 拒绝、管理员不绕过、拒绝后资源不变及 Chat UI 不写 MySQL sessions。 |
 | 外部调用与清理 | 容器验收只使用专用假配置和不可外连的模型地址，不发送业务查询，未调用真实模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置及前端生成物已完整清理。 |
-| Hosted CI 证据 | 前一 change-id 的 implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 已有 run `31959537002` 四 Job 成功；本 change-id 的目标 SHA 尚未推送，不能复用前一 SHA 作为完成证据。 |
+| Hosted CI 证据 | implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run `31994602064` 为 `completed/success`；Backend、Frontend、Release Contracts、Container Smoke 四个 Job 均成功，Container Smoke 的空库双用户、head 重启、legacy 升级和 cleanup 均成功。 |
 | 明确缺口 | 未执行真实模型/搜索/业务数据调用、浏览器 E2E、生产备份恢复、容量或并发压测；`AUD-006` 的可重复供应链和 `AUD-007` 的未知 schema fail-closed 未由本轮关闭。容器内 `langgraph-api 0.7.28` 已 EOL，升级与兼容回归归入 `AUD-006`。 |
 
 ### 1.3 共识方法与严重度
@@ -192,8 +192,8 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | 版本化迁移 | 7 项迁移定向测试覆盖 Alembic 单 head、空库升级、模型/迁移一致性；本地容器另验证空库、head 幂等和已知旧基线升级。未知或漂移 schema 及生产恢复仍见 `AUD-007`、`RR-001`。 |
 | 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
 | FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
-| 前端连接与静态质量门禁 | Agent Origin/assistant 固定为构建配置，旧 API Key 清理且不发送；typecheck、零警告 Lint 和格式通过。同一源码已有生产构建证据，最终本地重试受 Google Fonts 网络阻断；浏览器行为测试缺口仍见 `AUD-020`。 |
-| 本地与 Hosted 发布门禁 | 当前工作树后端、契约及五服务三场景容器门禁通过；本 change-id 的 Hosted 四 Job 等待目标 SHA 推送，不复用前一 SHA 的成功。 |
+| 前端连接与静态质量门禁 | Agent Origin/assistant 固定为构建配置，旧 API Key 清理且不发送；typecheck、零警告 Lint 和格式通过。本地最终重试受 Google Fonts 网络阻断，目标 SHA 的 Hosted 生产构建成功；浏览器行为测试缺口仍见 `AUD-020`。 |
+| 本地与 Hosted 发布门禁 | 当前工作树后端、契约及五服务三场景容器门禁通过；implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 Hosted 四 Job 在 run `31994602064` 全部成功。 |
 
 ### 3.2 已实现但本轮未验证
 
@@ -631,6 +631,6 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. 前一 change-id 的 implementation SHA
-   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 已有四 Job Hosted 证据；本
-   change-id 必须绑定首次实现提交的目标 SHA 重跑，补录前不得宣称 Hosted 完成。
+5. implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run
+   `31994602064` 已验证 Backend、Frontend、Release Contracts、Container Smoke
+   四个 Hosted Job；后续候选仍必须绑定各自 SHA 重跑。

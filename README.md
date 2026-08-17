@@ -338,7 +338,7 @@ git status --short
 250 项测试通过，其中迁移定向测试 7 项；isort、发布契约、Compose 解析和差异
 检查通过。Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、
 `format:check` 通过；同一前端源码此前已完成 `build`，本次最终重试仅因本机无法
-访问 Google Fonts 而失败，目标 SHA 仍须以 Hosted Frontend Job 为最终构建证据。
+访问 Google Fonts 而失败；目标 SHA 的 Hosted Frontend Job 已完成生产构建并成功。
 Docker Linux Engine 从当前源码重建镜像后，空库双用户 Agent 隔离、head 重启和
 已知旧基线升级三场景均通过。双用户场景覆盖匿名拒绝、伪造 owner、固定
 assistant、并发重复搜索、跨用户 history/state/copy/读改删/create_run、管理员
@@ -347,8 +347,11 @@ assistant、并发重复搜索、跨用户 history/state/copy/读改删/create_r
 
 前一 `restore-runtime-release-gates` implementation SHA
 `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
-`31959537002` 已为 `completed/success`；该结果不能替代本 change-id 目标 SHA
-的 Hosted 验证。需要真实模型的产品行为冒烟仍须由授权人员人工触发，并使用脱敏
+`31959537002` 已为 `completed/success`。本 change-id implementation SHA
+`9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run `31994602064` 也为
+`completed/success`；Backend、Frontend、Release Contracts、Container Smoke
+四个 Job 全部成功，Container Smoke 的空库双用户、head 重启、legacy 升级和
+cleanup 均成功。需要真实模型的产品行为冒烟仍须由授权人员人工触发，并使用脱敏
 或专用测试数据；密钥、Token、`.env` 和业务数据不得提交到版本控制。本轮不关闭
 `AUD-006` 的依赖/镜像/Actions 可重复性，也不关闭 `AUD-007` 的未知或漂移 schema
 fail-closed 边界。
@@ -378,5 +381,5 @@ fail-closed 边界。
 - `.trae/specs/restore-runtime-release-gates/`：已完成的镜像迁移资产、全仓库
   凭据扫描和容器发布门禁规格；Hosted 四个 Job 已在 implementation SHA
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
-- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地验收、等待目标 SHA
-  Hosted 四个 Job 的 Agent 第一方身份、租户所有权和固定浏览器 Origin 规格。
+- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地与 Hosted 验收的
+  Agent 第一方身份、租户所有权和固定浏览器 Origin 规格。

@@ -24,4 +24,4 @@
 - [x] 容器测试只使用假配置和脱敏用户，不调用模型、搜索或业务查询；成功失败均清理容器、网络、卷和临时配置。
 - [x] Python 3.12 全量 pytest、isort、发布契约、Alembic 校验、Compose 解析和 `git diff --check` 全部通过。
 - [x] Node 22/pnpm 10.5.1 的 typecheck、零警告 lint、format:check、build 通过；生成物已清理且治理文档与实际证据一致。
-- [ ] 本轮提交已推送 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 全部成功。
+- [x] 本轮提交已推送 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 全部成功。

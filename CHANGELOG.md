@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-### 保护 Agent 租户边界（2026-08-17，本地完成，Hosted 待补录）
+### 保护 Agent 租户边界（2026-08-17，本地与 Hosted 完成）
 
 - `secure-agent-tenant-boundaries` 已完成本地验收，成为第 9 个已完成 change-id；
   Roadmap 余下 10 个未启动候选。`DEC-001` 已确定 LangGraph threads 为 Chat UI
@@ -32,8 +32,8 @@
   **7 项通过**；isort、发布契约、Alembic 单 head、Compose 解析和差异检查通过。
 - Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint` 和
   `format:check` 通过；同一前端源码已有 `build` 通过证据。本次最终本地重试仅因
-  无法获取 Google Fonts 而失败，目标 SHA 仍须以 Hosted Frontend Job 为最终构建
-  证据。
+  无法获取 Google Fonts 而失败；目标 SHA 的 Hosted Frontend Job 已完成生产构建
+  并成功。
 - Docker Linux Engine 从当前源码重建五服务后，空库双用户、head 重启和已知
   legacy 升级三场景均通过；只使用专用假配置和不可外连模型地址，未调用模型、
   搜索或业务查询，容器、网络、卷、临时配置和生成物均已清理。
@@ -41,8 +41,10 @@
   **13 个：1 P0 / 3 P1 / 8 P2 / 1 P3**；生产仍为 **NO-GO**。容器中的
   `langgraph-api 0.7.28` 已 EOL，其升级与兼容回归归入 `AUD-006`，本轮未扩大
   依赖升级范围。
-- 本 change-id 的 Hosted Backend、Frontend、Release Contracts、Container Smoke
-  必须绑定首次实现提交 SHA；推送前不复用前一 SHA 的成功记录。
+- implementation SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 GitHub
+  Actions run `31994602064` 为 `completed/success`；Backend、Frontend、Release
+  Contracts、Container Smoke 四个 Job 全部成功，Container Smoke 的空库双用户、
+  head 重启、legacy 升级和 cleanup 均成功。
 
 ### 恢复运行时发布门禁（2026-08-16，本地与 Hosted 完成）
 

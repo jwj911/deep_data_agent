@@ -58,7 +58,7 @@
   - [x] SubTask 5.4: 更新发布契约，强制 `langgraph.json` Auth、前端固定 Origin、
     禁止旧 API Key/可变 Agent URL，并为回归样例增加测试。
 
-- [ ] Task 6: 完成全量门禁、五服务验收和治理文档同步。
+- [x] Task 6: 完成全量门禁、五服务验收和治理文档同步。
   - [x] SubTask 6.1: 运行 Python 3.12 全量 pytest、isort、发布契约、迁移、Compose
     解析和 `git diff --check`。
   - [x] SubTask 6.2: 使用 Node 22 与 pnpm 10.5.1 运行 typecheck、零警告 lint、
@@ -67,24 +67,31 @@
     不读取仓库 `.env`、不调用模型/搜索，成功失败均完整清理。
   - [x] SubTask 6.4: 更新 README、AGENTS、项目分析、Roadmap、CHANGELOG：关闭
     `AUD-001`/`AUD-003`，记录 DEC-001/002、BREAKING 匿名语义和仍开放风险。
-  - [ ] SubTask 6.5: 独立执行 `checklist.md` 的 25 项验收；任何失败先新增修复任务，
+  - [x] SubTask 6.5: 独立执行 `checklist.md` 的 25 项验收；任何失败先新增修复任务，
     修复并复验后才能进入提交。
 
   本地证据：Python 3.12.9 全量 **250 passed**，迁移定向 **7 passed**；isort、
   发布契约、Compose 解析与 `git diff --check` 通过。Node 22.22.2/pnpm 10.5.1
   的 typecheck、零警告 lint、format:check 通过，同一前端源码已有 build 通过
-  证据；最终重试因 Google Fonts 网络不可达失败，Hosted Frontend Job 待补录。
+  证据；最终本地重试因 Google Fonts 网络不可达失败，Hosted Frontend Job 已
+  完成生产构建并成功。
   五服务空库双用户、head 重启、legacy 升级通过，资源与临时配置已清理。
 
-- [ ] Task 7: 创建原子提交、推送 GitHub 并验证远端闭环。
+- [x] Task 7: 创建原子提交、推送 GitHub 并验证远端闭环。
   - [x] SubTask 7.1: 复核暂存范围、凭据和生成物，只包含本轮代码、测试、规格和
     必要治理文档。
-  - [ ] SubTask 7.2: 创建 `secure-agent-tenant-boundaries` 原子实现提交；远端前进
+  - [x] SubTask 7.2: 创建 `secure-agent-tenant-boundaries` 原子实现提交；远端前进
     时安全整合并重跑受影响门禁。
-  - [ ] SubTask 7.3: 推送 `main` 到 `origin/main`，确认本地与远端完整 SHA 一致、
+  - [x] SubTask 7.3: 推送 `main` 到 `origin/main`，确认本地与远端完整 SHA 一致、
     工作区干净。
-  - [ ] SubTask 7.4: 通过 GitHub API 确认目标 SHA 的 Backend、Frontend、
+  - [x] SubTask 7.4: 通过 GitHub API 确认目标 SHA 的 Backend、Frontend、
     Release Contracts、Container Smoke 全部成功；同步最终证据并推送验收记录。
+
+  Hosted 证据：implementation SHA
+  `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 Release Readiness run
+  `31994602064` 为 `completed/success`；Backend、Frontend、Release Contracts、
+  Container Smoke 四个 Job 均为 `success`。Container Smoke 的空库双用户、
+  head 重启、legacy 升级和 cleanup 均为 `success`。
 
 # Task Dependencies
 

@@ -36,10 +36,10 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-仓库现有 9 个已完成 change-id；最近完成本地验收的是
+仓库现有 9 个已完成 change-id；最近完成本地与 Hosted 验收的是
 `.trae/specs/secure-agent-tenant-boundaries/`，让第一方 JWT 贯穿 FastAPI Agent、
-LangGraph thread/run 和前端固定 Origin，并按用户隔离 Agent 缓存。目标 SHA 的
-Hosted 四 Job 证据在首次实现提交推送后补录。
+LangGraph thread/run 和前端固定 Origin，并按用户隔离 Agent 缓存。implementation
+SHA `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run `31994602064` 已成功。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
 历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
@@ -53,6 +53,10 @@ Roadmap 现有 10 个未启动候选，下一候选继续按风险驱动排序�
 源码已有 build 通过证据，最终本地重试因 Google Fonts 网络不可达失败。当前源码
 镜像的五服务、空库双用户 Agent 隔离、head 重启和已知旧基线升级均通过；过程
 未调用外部模型/搜索或发送业务查询，容器、网络、卷、临时配置和生成物已完整清理。
+
+本轮 Hosted 证据为上述 SHA 的 Backend、Frontend、Release Contracts、Container
+Smoke 四个 Job 均为 `success`；Container Smoke 的空库双用户、head 重启、
+legacy 升级和 cleanup 均为 `success`。
 
 ## 3. 关键结构
 
@@ -237,8 +241,9 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 
 2026-08-17 的当前工作树已取得 Python 3.12.9 共 250 项测试、7 项迁移定向测试、
 Node.js 22.22.2 与 pnpm 10.5.1 的 typecheck、零警告 lint、format:check，以及
-本地 Docker 五服务三场景发布冒烟证据。目标 SHA 的 Hosted 四个 Job 待推送后
-补录；不得用先前 SHA 的成功替代。
+本地 Docker 五服务三场景发布冒烟证据。implementation SHA
+`9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 Hosted 四个 Job 已在 run
+`31994602064` 验证成功。
 
 ## 7. 安全现状
 
@@ -302,5 +307,5 @@ Node.js 22.22.2 与 pnpm 10.5.1 的 typecheck、零警告 lint、format:check，
 - `.trae/specs/restore-runtime-release-gates/`：已完成的运行时发布门禁规格；
   Hosted 四个 Job 已在 implementation SHA
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
-- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地验收、等待目标 SHA
-  Hosted 证据的 Agent 第一方身份与租户边界规格。
+- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地与 Hosted 验收的
+  Agent 第一方身份与租户边界规格。
