@@ -5,6 +5,9 @@
     "graphs": {
         "agent": "./data_agent/agent_graph.py:agent"
     },
+    "auth": {
+        "path": "./data_agent/security/langgraph_auth.py:auth"
+    },
     "env": ".env",
     "image_distro": "wolfi"
 }

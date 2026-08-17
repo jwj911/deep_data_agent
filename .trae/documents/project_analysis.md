@@ -1,6 +1,6 @@
 # Deep Data Agent 项目分析
 
-> 状态日期：2026-08-16
+> 状态日期：2026-08-17
 > 审计执行日期：2026-08-12
 > 审计基线：`main` @ `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`
 
@@ -30,15 +30,15 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 日期与版本 | 2026-08-12，分支 `main`，完整 HEAD `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`。审计开始前该已推送 HEAD 的工作区干净。 |
 | 交付前复核 | 2026-08-16 在同一运行时代码基线上重跑后端、前端、发布契约、Compose 解析与差异检查；两名新的独立验证者逐项确认全部 18 个最终问题，结论仍为 18/18 均 2/2 高置信度。复核只收紧证据边界，不改变严重度、问题数或 Roadmap 映射。 |
 | 审计收口工作区 | 审计收口只修改 5 个治理文档及 `.trae/specs/audit-project-roadmap/`，没有运行时代码、测试、依赖或配置改动。该记录描述历史审计收口，不是当前工作树状态。 |
-| 当前工作树 | `restore-runtime-release-gates` 补齐后端镜像迁移资产、全 Git 文本凭据扫描、Container Smoke 工作流、容器验证脚本及确定性测试，并同步本报告、Roadmap、README、AGENTS、CHANGELOG 与 tasks。 |
-| Roadmap 状态 | 既有 7 个已完成 change-id，加上已有本地与 Hosted 证据的 `restore-runtime-release-gates`，共 8 个；余下 11 个未启动候选。 |
-| 后端本地证据 | Python 3.12.9；`pytest -q` 共 **189 项通过**，其中 `tests/test_migrations.py` 迁移定向测试 **7 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
-| 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check`、`build` 通过，任务生成物已清理。 |
+| 当前工作树 | `secure-agent-tenant-boundaries` 已实现第一方 LangGraph Auth、thread/run owner、FastAPI Agent 双层授权、租户缓存、前端固定 Origin、旧 API Key 清理、发布契约及双用户容器实证，并同步本报告、Roadmap、README、AGENTS、CHANGELOG 与 tasks。 |
+| Roadmap 状态 | 既有 8 个已完成 change-id，加上已完成本地验收的 `secure-agent-tenant-boundaries`，共 9 个；余下 10 个未启动候选。 |
+| 后端本地证据 | Python 3.12.9；`pytest -q` 共 **250 项通过**，其中 `tests/test_migrations.py` 迁移定向测试 **7 项通过**；`isort --check-only`、发布契约、Alembic 单 head/升级校验、Compose 静态解析和 `git diff --check` 通过。 |
+| 前端本地证据 | 临时 PATH 使用 Node.js `v22.22.2` 与 pnpm `10.5.1`；`typecheck`、零警告 `lint`、`format:check` 通过。同一前端源码此前已通过 `build`；最终重试仅因本机到 Google Fonts 的连接重置失败，目标 SHA 仍以 Hosted Frontend Job 为最终构建证据。 |
 | 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
-| 本地容器证据 | Docker Linux Engine 从当前源码重建前后端镜像；MySQL、Redis、FastAPI、LangGraph、Frontend 五服务健康，FastAPI `/api/health`、LangGraph `/info`、Frontend `/data_copilot/` 三个 HTTP 端点通过。空库到达唯一 head `8f3c1b7a2d4e`；head 重启保持用户、会话、消息 canary；已知旧基线升级后 canary 保持且角色回填为 `user`。 |
+| 本地容器证据 | Docker Linux Engine 从当前源码重建前后端镜像；五服务健康，空库双用户、head 重启和已知旧基线升级三场景通过。双用户场景验证 LangGraph 匿名 403、FastAPI Agent 匿名 401、固定 assistant、伪造 owner 覆盖、并发重复搜索、跨用户 history/state/copy/读改删/create_run 拒绝、管理员不绕过、拒绝后资源不变及 Chat UI 不写 MySQL sessions。 |
 | 外部调用与清理 | 容器验收只使用专用假配置和不可外连的模型地址，不发送业务查询，未调用真实模型、搜索服务或生产数据；容器、网络、匿名卷、临时配置及前端生成物已完整清理。 |
-| Hosted CI 证据 | 审计目标 SHA 的 run `31554712031` 中 Backend、Frontend、Release Contracts 三个 Job 成功。implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run `31959537002` 为 `completed/success`；Backend、Frontend、Release Contracts、Container Smoke 四个 Job 均为 `success`，Container Smoke 的空库、head 重启、legacy 升级和 cleanup 均为 `success`。 |
-| 明确缺口 | 未执行真实模型/搜索/业务数据调用、浏览器行为/E2E、生产备份恢复、容量或并发压测；`AUD-006` 的可重复供应链和 `AUD-007` 的未知 schema fail-closed 未由本轮关闭。 |
+| Hosted CI 证据 | 前一 change-id 的 implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 已有 run `31959537002` 四 Job 成功；本 change-id 的目标 SHA 尚未推送，不能复用前一 SHA 作为完成证据。 |
+| 明确缺口 | 未执行真实模型/搜索/业务数据调用、浏览器 E2E、生产备份恢复、容量或并发压测；`AUD-006` 的可重复供应链和 `AUD-007` 的未知 schema fail-closed 未由本轮关闭。容器内 `langgraph-api 0.7.28` 已 EOL，升级与兼容回归归入 `AUD-006`。 |
 
 ### 1.3 共识方法与严重度
 
@@ -54,8 +54,9 @@ Task 3 对候选发现执行两名独立验证者复核。本报告只保留双�
 2/2 高置信度问题；严重度由本 Spec 定义最终裁决，不反写验证者原始的 P1/P2
 建议。去重结果为：`AUD-013` 合并到 `AUD-010`，`AUD-021` 合并到 `AUD-006`；
 `AUD-019` 为 0/2，不进入问题与路线判断。完整 21 候选 × 2 验证者矩阵见第 4.5 节。
-当前工作树关闭 `AUD-014`、`AUD-011`、`AUD-015`；历史审计记录不删除，当前开放
-项为 **15 个：3 P0、3 P1、8 P2、1 P3**。其余问题中的修复方案仍为**候选**，
+当前工作树关闭 `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、`AUD-003`；
+历史审计记录不删除，当前开放项为 **13 个：1 P0、3 P1、8 P2、1 P3**。
+其余问题中的修复方案仍为**候选**，
 不应解读为已实现或已验证。
 
 ### 1.4 已审查且无独立问题的范围
@@ -102,22 +103,22 @@ Task 3 对候选发现执行两名独立验证者复核。本报告只保留双�
 
 ### 2.1 真实调用链与认证边界
 
-下图描述当前基线，而非目标架构。浏览器对第一方 REST 与 LangGraph 使用不同认证
-材料；主要 Chat UI 直接访问 LangGraph，FastAPI `/api/query` 是另一条无第一方
-JWT 依赖的 Agent 入口。所有强调节点的样式同时定义 `fill` 与 `color`。
+下图描述当前工作树。浏览器对第一方 REST 与 LangGraph 使用同一 JWT，但只向两个
+固定构建 Origin 发送；FastAPI `/api/query` 与 LangGraph thread/run 均要求第一方
+主体。所有强调节点的样式同时定义 `fill` 与 `color`。
 
 ```mermaid
 flowchart LR
-    B["浏览器<br/>Next.js 静态前端"] -->|"第一方 JWT<br/>仅发往配置的 REST Origin"| F["FastAPI<br/>认证 / 会话 / 管理"]
-    B -->|"LangGraph SDK<br/>可选持久化 API Key"| L["LangGraph 服务<br/>当前无第一方 JWT 所有权"]
-    B -.->|"独立 REST 调用<br/>/api/query 无 JWT 依赖"| Q["FastAPI /api/query"]
+    B["浏览器<br/>Next.js 静态前端"] -->|"第一方 JWT<br/>固定 REST Origin"| F["FastAPI<br/>认证 / 会话 / 管理"]
+    B -->|"第一方 JWT<br/>固定 Agent Origin"| L["LangGraph 服务<br/>自定义 Auth / owner"]
+    B -->|"第一方 JWT<br/>agent.invoke_own"| Q["FastAPI /api/query"]
 
     F -->|"SQLAlchemy<br/>用户 / 会话 / 消息 / RBAC"| M[("MySQL")]
     F -->|"固定窗口限流"| R[("Redis")]
     Q --> A["AgentService<br/>同步 invoke"]
-    L --> G["LangGraph / DeepAgents 图"]
+    L -->|"thread/run owner"| G["LangGraph / DeepAgents 图"]
     A --> G
-    A -->|"响应缓存"| R
+    A -->|"租户 / 模型 / 工具策略缓存"| R
     G -->|"ChatOpenAI 兼容 API"| X["外部模型服务"]
     G --> T["默认工具集合"]
     T -->|"internet_search"| S["外部搜索服务"]
@@ -127,7 +128,7 @@ flowchart LR
 
     class B browser
     class F boundary
-    class L,Q risk
+    class L,Q boundary
     class A,G compute
     class M,R data
     class X,S external
@@ -168,10 +169,11 @@ Compose **已实现** MySQL、Redis、FastAPI、LangGraph、Frontend 五个服�
 [LangGraph](../../docker-config/docker-compose.yml#L123-L158)、
 [Frontend](../../docker-config/docker-compose.yml#L160-L175)。
 当前工作树已用专用假配置从源码重建镜像并验证五服务健康、三个非业务 HTTP 端点、
-容器内唯一 migration head、head canary 与已知旧基线升级；没有发送业务查询或
-调用外部服务。MySQL 保存第一方用户、会话和消息，Redis 同时承担 Agent/搜索缓存
-与 FastAPI 固定窗口限流。LangGraph 线程是独立持久化语义，尚未与 MySQL 会话建立
-单一主数据契约，属于 `DEC-001`。
+容器内唯一 migration head、head canary、已知旧基线升级及双用户 LangGraph
+隔离；没有发送业务查询或调用外部服务。MySQL 保存第一方用户、角色及既有 REST
+会话/消息，Redis 同时承担 Agent/搜索缓存与 FastAPI 固定窗口限流。`DEC-001`
+已确定 LangGraph threads 是 Chat UI 对话主数据，MySQL users/RBAC 是身份主数据；
+两套会话不双写、不迁移，也不宣称历史同步。
 
 ### 2.3 遗留模块边界
 
@@ -186,12 +188,12 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 
 | 能力 | 已验证证据边界 |
 |---|---|
-| 第一方认证、会话所有权与固定 RBAC | 189 项后端确定性测试覆盖 JWT 配置、注册登录、会话隔离、默认拒绝、管理员 API 与脱敏审计；这不扩展到 LangGraph 对话平面。 |
+| 第一方认证、Agent/会话所有权与固定 RBAC | 250 项后端确定性测试覆盖 JWT 配置、注册登录、FastAPI Agent 双层授权、LangGraph Auth/thread/run owner、租户缓存、会话隔离、默认拒绝、管理员 API 与脱敏审计；本地五服务双用户场景验证跨租户操作和管理员不绕过。 |
 | 版本化迁移 | 7 项迁移定向测试覆盖 Alembic 单 head、空库升级、模型/迁移一致性；本地容器另验证空库、head 幂等和已知旧基线升级。未知或漂移 schema 及生产恢复仍见 `AUD-007`、`RR-001`。 |
 | 可观测性与人工诊断 | UTC JSON 事件、请求 ID、脱敏、倒序时间线、噪声折叠及汇总测试通过；不是不可变长期审计或外部监控平台。 |
 | FastAPI 固定窗口限流 | 身份分桶、429、代理边界、健康豁免和 Redis fail-open 的确定性测试通过；永久降级问题仍见 `AUD-008`。 |
-| 前端静态质量门禁 | typecheck、Lint、格式和生产构建通过；没有行为测试，见 `AUD-020`。 |
-| 本地与 Hosted 发布门禁 | 当前工作树本地后端、前端、契约及五服务容器门禁通过；implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run `31959537002` 为 `completed/success`，四个 Hosted Job 全部成功。 |
+| 前端连接与静态质量门禁 | Agent Origin/assistant 固定为构建配置，旧 API Key 清理且不发送；typecheck、零警告 Lint 和格式通过。同一源码已有生产构建证据，最终本地重试受 Google Fonts 网络阻断；浏览器行为测试缺口仍见 `AUD-020`。 |
+| 本地与 Hosted 发布门禁 | 当前工作树后端、契约及五服务三场景容器门禁通过；本 change-id 的 Hosted 四 Job 等待目标 SHA 推送，不复用前一 SHA 的成功。 |
 
 ### 3.2 已实现但本轮未验证
 
@@ -201,16 +203,16 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 
 ### 3.3 候选而非现状
 
-当前开放 15 个问题的修复条件、`DEC-001..005` 的目标选择、长期监控/SIEM、
+当前开放 13 个问题的修复条件、`DEC-003..005` 的目标选择、长期监控/SIEM、
 生产备份恢复、对象存储和浏览器 E2E 都是候选。除非对应代码、测试与运行证据
 进入新基线，不得在 README、Roadmap 或发布说明中标为已完成。
 
-## 4. 问题清单：历史 18 项，当前开放 15 项
+## 4. 问题清单：历史 18 项，当前开放 13 项
 
-本节保留审计时 18 个问题的证据链。标注“当前工作树已关闭”的 3 项不再计入开放
-统计；其余 15 项仍按原 severity 开放。
+本节保留审计时 18 个问题的证据链。标注“当前工作树已关闭”的 5 项不再计入开放
+统计；其余 13 项仍按原 severity 开放。
 
-### 4.1 P0（当前开放 3 项，另有 1 项已关闭）
+### 4.1 P0（当前开放 1 项，另有 3 项已关闭）
 
 #### AUD-014：后端镜像缺失 Alembic 迁移资源
 
@@ -232,7 +234,8 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-001：AI 对话平面缺少第一方身份与线程/缓存所有权
 
 - **严重度 / 信心**：**P0 / 2/2 高置信度**。
-- **证据**：浏览器直接创建 LangGraph 客户端并仅按图 metadata 搜索线程：
+- **当前状态**：**当前工作树已关闭（本地代码、测试与容器证据）**。
+- **历史审计证据**：浏览器直接创建 LangGraph 客户端并仅按图 metadata 搜索线程：
   [agent_chatui/src/providers/Thread.tsx:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40)；
   FastAPI `/api/query` 没有认证依赖：
   [data_agent/agent_server.py:L68-L75](../../data_agent/agent_server.py#L68-L75)；
@@ -247,11 +250,18 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 - **可验证完成条件**：两个独立用户经所有公开 AI 入口创建线程与相同查询后，
   不能枚举、读取、续写或命中对方私有结果；匿名请求按明确策略拒绝或隔离，
   并有跨入口集成测试证明。
+- **关闭证据**：FastAPI `/api/query` 与 AgentService 分别执行
+  `agent.invoke_own`；缓存键包含用户、模型、Base URL、温度、工具策略版本和查询
+  SHA-256 摘要。LangGraph 自定义 Auth 每次读取数据库用户/当前角色，thread/run
+  handler 覆盖 owner 并返回 owner filter。250 项测试及五服务双用户场景验证匿名
+  拒绝、并发重复搜索、跨用户 history/state/copy/读改删/create_run、管理员不
+  绕过、拒绝后资源不变和无 MySQL 双写。
 
 #### AUD-003：查询参数可控制 Agent 地址并外发持久化 LangGraph API Key
 
 - **严重度 / 信心**：**P0 / 2/2 高置信度**。
-- **证据**：Agent URL 来自查询状态，客户端把持久化 Key 交给该地址：
+- **当前状态**：**当前工作树已关闭（本地代码、测试与发布契约证据）**。
+- **历史审计证据**：Agent URL 来自查询状态，客户端把持久化 Key 交给该地址：
   [agent_chatui/src/providers/Thread.tsx:L22-L35](../../agent_chatui/src/providers/Thread.tsx#L22-L35)；
   状态检查向可变 URL 的 `/info` 发送认证头：
   [agent_chatui/src/providers/Stream.tsx:L29-L36](../../agent_chatui/src/providers/Stream.tsx#L29-L36)；
@@ -266,6 +276,11 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 - **依赖**：`DEC-002`、`DEC-003`。
 - **可验证完成条件**：恶意 `apiUrl`、混合协议、重定向和相似域名测试均无法收到
   既有 Key；只有允许 Origin 能收到与其绑定的新凭据，CSP/连接策略同步生效。
+- **关闭证据**：Thread、Stream、SDK Client 和 Studio 链接只读取构建时
+  `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_ASSISTANT_ID`；连接表单、查询状态、Key
+  输入、`getApiKey`/`setApiKey` 和 `X-Api-Key` 已删除。应用只删除旧
+  `lg:chat:apiKey`，第一方 JWT 从 `sessionStorage` 读取并仅发送到固定 Agent
+  Origin；发布契约对可变 URL 与旧 Key 读写 fail-closed。
 
 #### AUD-002：默认文档工具可读取任意本地路径
 
@@ -364,6 +379,8 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
   [docker-config/docker-compose.yml:L46-L78](../../docker-config/docker-compose.yml#L46-L78)；
   Hosted CI 每次重新解析安装：
   [.github/workflows/release-readiness.yml:L30-L40](../../.github/workflows/release-readiness.yml#L30-L40)。
+  2026-08-17 当前源码容器启动时，解析得到的 `langgraph-api 0.7.28` 明确报告 EOL，
+  上游最新主线已进入 `0.12.x`。
 - **影响**：相同 SHA 在不同日期可能得到不同依赖、镜像和行为；`pip install .` 与
   `pip install -r requirements.txt` 契约分裂，供应链回滚和故障复现困难。
 - **建议**：统一权威依赖声明，生成带哈希锁文件，区分运行/开发依赖；
@@ -556,21 +573,26 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 矩阵汇总：`AUD-001..018`（除合并项外）和 `AUD-020` 形成 18 个最终问题，
 全部为 2/2 高置信度；`AUD-013`、`AUD-021` 也是 2/2，但分别合并；`AUD-019`
 两者均为 `false`。因此 21 个候选的 42 条验证记录完整，历史问题数仍为 18；
-当前工作树关闭其中 3 项，开放 15 项。
+当前工作树关闭其中 5 项，开放 13 项。
 
 ## 5. 开放决策与风险接受
 
-### 5.1 开放决策
+### 5.1 本轮已决
+
+| ID | 决定 | 已实现边界 |
+|---|---|---|
+| **DEC-001** | LangGraph threads 是 Chat UI 对话与运行状态主数据；MySQL users/RBAC 是身份主数据。 | 不双写、不迁移既有 MySQL sessions/messages，也不宣称两套历史同步。 |
+| **DEC-002** | 锁定版本使用 `langgraph.json` 自定义 Auth，不新增 FastAPI 流式代理。 | 第一方 JWT 贯穿 FastAPI/LangGraph，thread/run 服务端 owner 默认拒绝；升级 EOL 运行时另行治理。 |
+
+### 5.2 开放决策
 
 | ID | 必须作出的决定 | 当前约束 / 退出条件 |
 |---|---|---|
-| **DEC-001** | MySQL 会话消息还是 LangGraph threads 作为对话主数据源。 | 需定义 ID 映射、所有权、分页、保留和迁移；决定前不能声称两套历史一致。 |
-| **DEC-002** | LangGraph 采用 FastAPI 同源代理、自定义 Auth，还是独立网关。 | 方案必须传播第一方主体、服务端校验线程所有权，并消除浏览器任意 Origin 携带 Key。 |
 | **DEC-003** | 继续严格 local-only，还是支持网络化多用户部署。 | 若选择后者，P0 认证边界、端口暴露、TLS、密钥管理、备份和运行监控先成为发布前置条件。 |
 | **DEC-004** | 文件使用对象存储、每用户隔离工作区，还是完全不落盘。 | 必须同步确定类型/大小、所有权、保留、删除、脱敏、恶意内容扫描和模型外发策略。 |
 | **DEC-005** | `utils/` 删除、归档独立仓库，还是正式纳入主项目治理。 | 已确认主应用未导入 `utils/`；正式纳入前需补依赖锁、测试、所有者、安全审查和发布边界，删除/归档则需确认无仓外消费者。 |
 
-### 5.2 风险接受登记
+### 5.3 风险接受登记
 
 | ID | 当前接受范围 | 重新评审触发器 |
 |---|---|---|
@@ -589,10 +611,10 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 ### 6.1 结论
 
 **生产发布：NO-GO。** 历史审计识别的 18 个 2/2 高置信度问题中，当前工作树已
-关闭 `AUD-014`、`AUD-011`、`AUD-015`；仍开放 **15 项：3 个 P0、3 个 P1、
-8 个 P2、1 个 P3**。P0 为 AI 对话身份/所有权断层、浏览器 Key 外发和任意本地
-文件读取；P1 为无端到端执行预算、旧库盲 stamp 和 Redis 永久降级。任一开放项
-都不能由 189 项测试或本地容器冒烟抵消。
+关闭 `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、`AUD-003`；仍开放
+**13 项：1 个 P0、3 个 P1、8 个 P2、1 个 P3**。P0 为任意本地文件读取；P1 为
+无端到端执行预算、旧库盲 stamp 和 Redis 永久降级。任一开放项都不能由 250 项
+测试或本地容器冒烟抵消。
 
 **本地开发与受控审计：有条件继续。** 可在不使用真实业务数据、不开启 Python
 执行、不暴露到非受控网络、使用已隔离测试凭据和可重建数据的前提下继续开发；
@@ -604,11 +626,11 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 1. 关闭全部 P0 和 P1，并按各问题的可验证完成条件取得代码、自动化测试和运行证据。
 2. 对 P2/P3 逐项关闭，或形成有责任人、期限、部署范围与补偿控制的书面风险接受；
    `AUD-020` 的前端行为基线不得仅靠人工口头接受。
-3. 对 `DEC-001..005` 给出记录化决策，尤其统一 AI 身份/线程边界与 `utils/` 归属。
+3. 对仍开放的 `DEC-003..005` 给出记录化决策；`DEC-001/002` 已由本轮关闭并需
+   在后续变更中保持。
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 run
-   `31959537002` 已验证 Backend、Frontend、Release Contracts 和 Container Smoke
-   四个 Hosted Job；后续发布候选仍须绑定各自 SHA 重跑，并继续区分本地、Hosted CI
-   和未验证项。
+5. 前一 change-id 的 implementation SHA
+   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 已有四 Job Hosted 证据；本
+   change-id 必须绑定首次实现提交的目标 SHA 重跑，补录前不得宣称 Hosted 完成。

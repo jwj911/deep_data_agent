@@ -5,6 +5,45 @@
 
 ## [Unreleased]
 
+### 保护 Agent 租户边界（2026-08-17，本地完成，Hosted 待补录）
+
+- `secure-agent-tenant-boundaries` 已完成本地验收，成为第 9 个已完成 change-id；
+  Roadmap 余下 10 个未启动候选。`DEC-001` 已确定 LangGraph threads 为 Chat UI
+  对话主数据、MySQL users/RBAC 为身份主数据且不双写；`DEC-002` 已确定使用当前
+  LangGraph 自定义 Auth，不新增 FastAPI 流式代理。
+- **BREAKING**：FastAPI `/api/query` 现在要求第一方 JWT，无效或匿名请求返回
+  `401`；LangGraph thread/run/assistant 资源要求同一 JWT，锁定的
+  `langgraph-api 0.7.28` 对认证失败返回 `403`。
+- LangGraph Auth 每次从 MySQL 加载当前用户和角色，使用数据库用户 ID 作为稳定
+  identity；全局默认拒绝，thread/run 强制 owner metadata/filter，管理员不绕过
+  所有权，assistant 搜索/读取固定到 `agent` graph，写操作保持拒绝。
+- FastAPI 增加 `agent.invoke_own` 路由与服务双层授权；Agent 缓存键包含用户、
+  模型、Base URL、温度、工具策略版本和查询，仅持久化 SHA-256 摘要，阻止相同
+  查询跨用户复用。
+- 前端删除 `apiUrl`/`assistantId` 查询状态、连接表单、LangGraph API Key 输入、
+  `X-Api-Key` 和旧 Key 读写；只使用构建时 Agent URL/assistant，并从
+  `sessionStorage` 向固定 Agent Origin 发送第一方 Bearer JWT。启动时只删除旧
+  `lg:chat:apiKey`。
+- 发布契约新增 LangGraph Auth、owner 授权、固定 Agent Origin、旧 API Key 禁止和
+  Bearer JWT 检查。Container Smoke 新增双用户隔离，覆盖固定 assistant、伪造
+  owner、并发重复搜索、跨用户 history/state/copy/读改删/create_run、管理员不
+  绕过、拒绝后资源不变和无 MySQL 双写。
+- Python 3.12.9 下 `python -B -m pytest -q` 共 **250 项通过**，迁移定向测试
+  **7 项通过**；isort、发布契约、Alembic 单 head、Compose 解析和差异检查通过。
+- Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint` 和
+  `format:check` 通过；同一前端源码已有 `build` 通过证据。本次最终本地重试仅因
+  无法获取 Google Fonts 而失败，目标 SHA 仍须以 Hosted Frontend Job 为最终构建
+  证据。
+- Docker Linux Engine 从当前源码重建五服务后，空库双用户、head 重启和已知
+  legacy 升级三场景均通过；只使用专用假配置和不可外连模型地址，未调用模型、
+  搜索或业务查询，容器、网络、卷、临时配置和生成物均已清理。
+- 历史 18 个问题中新增关闭 `AUD-001`、`AUD-003`，当前开放
+  **13 个：1 P0 / 3 P1 / 8 P2 / 1 P3**；生产仍为 **NO-GO**。容器中的
+  `langgraph-api 0.7.28` 已 EOL，其升级与兼容回归归入 `AUD-006`，本轮未扩大
+  依赖升级范围。
+- 本 change-id 的 Hosted Backend、Frontend、Release Contracts、Container Smoke
+  必须绑定首次实现提交 SHA；推送前不复用前一 SHA 的成功记录。
+
 ### 恢复运行时发布门禁（2026-08-16，本地与 Hosted 完成）
 
 - `restore-runtime-release-gates` 已按本地与 Hosted 证据标为第 8 个已完成

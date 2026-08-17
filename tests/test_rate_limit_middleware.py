@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -10,8 +11,10 @@ import httpx
 from data_agent import agent_server
 from data_agent.config.config import config
 from data_agent.config.logger import RedactingFormatter, rate_limit_logger
+from data_agent.models.user import User, UserRole
 from data_agent.observability import rate_limit_middleware
-from data_agent.services.auth_service import create_access_token
+from data_agent.services.auth_service import (create_access_token,
+                                              get_current_user)
 from data_agent.services.rate_limit_service import RateLimitDecision
 
 TEST_JWT_SECRET = "rate-limit-suite-secret-with-at-least-32-characters"
@@ -121,6 +124,18 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@contextmanager
+def _authenticated_actor(user_id: int = 1):
+    previous_overrides = agent_server.app.dependency_overrides.copy()
+    actor = User(id=user_id, role=UserRole.USER.value)
+    agent_server.app.dependency_overrides[get_current_user] = lambda: actor
+    try:
+        yield actor
+    finally:
+        agent_server.app.dependency_overrides.clear()
+        agent_server.app.dependency_overrides.update(previous_overrides)
+
+
 def test_over_limit_returns_stable_429(monkeypatch) -> None:
     limited = RateLimitDecision(
         allowed=False,
@@ -134,7 +149,12 @@ def test_over_limit_returns_stable_429(monkeypatch) -> None:
         rate_limit_middleware, "global_rate_limit_service", fake
     )
 
-    response = _request("POST", "/api/query", json={"query": "hi"})
+    with _authenticated_actor():
+        response = _request(
+            "POST",
+            "/api/query",
+            json={"query": "hi"},
+        )
 
     assert response.status_code == 429
     detail = response.json()["detail"]
@@ -168,7 +188,12 @@ def test_under_limit_passes_through_with_headers(monkeypatch) -> None:
         Mock(return_value="ok"),
     )
 
-    response = _request("POST", "/api/query", json={"query": "hi"})
+    with _authenticated_actor():
+        response = _request(
+            "POST",
+            "/api/query",
+            json={"query": "hi"},
+        )
 
     assert response.status_code == 200
     assert response.json() == {"response": "ok"}
@@ -223,15 +248,16 @@ def test_distinct_identities_are_counted_independently(monkeypatch) -> None:
     token_a = create_access_token(1)
     token_b = create_access_token(2)
 
-    first_a = _request(
-        "POST", "/api/query", headers=_auth(token_a), json={"query": "1"}
-    )
-    second_a = _request(
-        "POST", "/api/query", headers=_auth(token_a), json={"query": "2"}
-    )
-    first_b = _request(
-        "POST", "/api/query", headers=_auth(token_b), json={"query": "3"}
-    )
+    with _authenticated_actor():
+        first_a = _request(
+            "POST", "/api/query", headers=_auth(token_a), json={"query": "1"}
+        )
+        second_a = _request(
+            "POST", "/api/query", headers=_auth(token_a), json={"query": "2"}
+        )
+        first_b = _request(
+            "POST", "/api/query", headers=_auth(token_b), json={"query": "3"}
+        )
 
     # 用户 A 第二次触顶被拒，用户 B 不受 A 计数影响仍放行。
     assert first_a.status_code == 200
@@ -292,16 +318,17 @@ def test_rate_limit_events_do_not_leak_sensitive_values(monkeypatch) -> None:
             "invoke",
             Mock(return_value="ok"),
         )
-        degraded_response = _request(
-            "POST",
-            "/api/query",
-            headers={
-                **_auth(token),
-                "X-Forwarded-For": forged,
-                "X-Request-ID": fixed_request_id,
-            },
-            json={"query": "secret business prompt"},
-        )
+        with _authenticated_actor(12345):
+            degraded_response = _request(
+                "POST",
+                "/api/query",
+                headers={
+                    **_auth(token),
+                    "X-Forwarded-For": forged,
+                    "X-Request-ID": fixed_request_id,
+                },
+                json={"query": "secret business prompt"},
+            )
         # 再用受控 limited 决策，捕获 limited 决策事件。
         limited = RateLimitDecision(
             allowed=False,
@@ -315,16 +342,17 @@ def test_rate_limit_events_do_not_leak_sensitive_values(monkeypatch) -> None:
             "global_rate_limit_service",
             _StaticLimiter(limited),
         )
-        limited_response = _request(
-            "POST",
-            "/api/query",
-            headers={
-                **_auth(token),
-                "X-Forwarded-For": forged,
-                "X-Request-ID": fixed_request_id,
-            },
-            json={"query": "another secret prompt"},
-        )
+        with _authenticated_actor(12345):
+            limited_response = _request(
+                "POST",
+                "/api/query",
+                headers={
+                    **_auth(token),
+                    "X-Forwarded-For": forged,
+                    "X-Request-ID": fixed_request_id,
+                },
+                json={"query": "another secret prompt"},
+            )
     finally:
         rate_limit_logger.removeHandler(capture)
         rate_limit_logger.setLevel(previous_level)
@@ -378,7 +406,12 @@ def test_disabled_rate_limit_passes_through_without_counting(
         Mock(return_value="ok"),
     )
 
-    response = _request("POST", "/api/query", json={"query": "hi"})
+    with _authenticated_actor():
+        response = _request(
+            "POST",
+            "/api/query",
+            json={"query": "hi"},
+        )
 
     assert response.status_code == 200
     # 关闭时不添加限流响应头，也不调用限流服务。

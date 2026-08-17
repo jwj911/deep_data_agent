@@ -17,6 +17,10 @@ class UserAlreadyExistsError(Exception):
     """Raised when a user with the same username or email already exists."""
 
 
+class InvalidCredentialsError(ValueError):
+    """Raised when first-party credentials cannot identify an active user."""
+
+
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -83,9 +87,9 @@ def create_access_token(
     )
 
 
-def decode_access_token(token: str) -> int:
+def decode_access_token_subject(token: str) -> int:
     """Validate an access token and return its positive user ID."""
-    secret_key = require_auth_configured()
+    secret_key = config.require_jwt_secret_key()
     try:
         payload = jwt.decode(
             token,
@@ -103,6 +107,50 @@ def decode_access_token(token: str) -> int:
             raise JWTError("invalid subject")
         return int(subject)
     except JWTError as exc:
+        raise InvalidCredentialsError("invalid credentials") from exc
+
+
+def bearer_token_from_header(authorization: str | None) -> str:
+    """Extract one non-empty Bearer token without accepting other schemes."""
+    if not isinstance(authorization, str):
+        raise InvalidCredentialsError("invalid credentials")
+    scheme, separator, token = authorization.strip().partition(" ")
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not token.strip()
+        or " " in token.strip()
+    ):
+        raise InvalidCredentialsError("invalid credentials")
+    return token.strip()
+
+
+def get_user_for_access_token(db: Session, token: str) -> User:
+    """Resolve a valid token to a current database user."""
+    user_id = decode_access_token_subject(token)
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise InvalidCredentialsError("invalid credentials")
+    return user
+
+
+def get_user_for_authorization_header(
+    db: Session,
+    authorization: str | None,
+) -> User:
+    """Resolve a standard Authorization header to a current user."""
+    return get_user_for_access_token(
+        db,
+        bearer_token_from_header(authorization),
+    )
+
+
+def decode_access_token(token: str) -> int:
+    """FastAPI-compatible access-token decoder."""
+    require_auth_configured()
+    try:
+        return decode_access_token_subject(token)
+    except InvalidCredentialsError as exc:
         raise _auth_error(
             status.HTTP_401_UNAUTHORIZED,
             "invalid_credentials",
@@ -122,15 +170,14 @@ def get_current_user(
             "invalid_credentials",
             "Could not validate credentials",
         )
-    user_id = decode_access_token(token)
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
+    try:
+        return get_user_for_access_token(db, token)
+    except InvalidCredentialsError as exc:
         raise _auth_error(
             status.HTTP_401_UNAUTHORIZED,
             "invalid_credentials",
             "Could not validate credentials",
-        )
-    return user
+        ) from exc
 
 def get_user_by_username(db: Session, username: str) -> Optional[User]:
     """Get user by username"""

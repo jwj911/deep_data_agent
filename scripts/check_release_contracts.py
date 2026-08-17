@@ -16,6 +16,10 @@ from urllib.parse import urlsplit
 NEXT_CONFIG_PATH = "agent_chatui/next.config.mjs"
 ENV_EXAMPLE_PATH = ".env.example"
 COMPOSE_PATH = "docker-config/docker-compose.yml"
+LANGGRAPH_CONFIG_PATH = "langgraph.json"
+LANGGRAPH_AUTH_PATH = "./data_agent/security/langgraph_auth.py:auth"
+LANGGRAPH_AUTH_MODULE_PATH = "data_agent/security/langgraph_auth.py"
+FRONTEND_API_KEY_PATH = "agent_chatui/src/lib/api-key.ts"
 DOCKERIGNORE_PATH = ".dockerignore"
 DOCKERFILE_PATH = "data_agent/Dockerfile"
 MIGRATIONS_VERSIONS_PATH = "migrations/versions"
@@ -27,6 +31,9 @@ REQUIRED_STRUCTURE_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
     COMPOSE_PATH,
+    LANGGRAPH_CONFIG_PATH,
+    LANGGRAPH_AUTH_MODULE_PATH,
+    FRONTEND_API_KEY_PATH,
     DOCKERIGNORE_PATH,
     DOCKERFILE_PATH,
     USER_MODEL_PATH,
@@ -96,6 +103,16 @@ RATE_LIMIT_DEFAULTS = {
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
+)
+VARIABLE_AGENT_QUERY_PATTERN = re.compile(
+    r"""useQueryState\s*\(\s*["'](?:apiUrl|assistantId)["']"""
+)
+LEGACY_AGENT_KEY_PATTERN = re.compile(
+    r"\b(?:getApiKey|setApiKey|buildRequestHeaders)\b|X-Api-Key"
+)
+LEGACY_AGENT_KEY_READ_PATTERN = re.compile(
+    r"(?:localStorage\.)?(?:getItem|setItem)\s*\([^)]*"
+    r"(?:lg:chat:apiKey|LEGACY_API_KEY_STORAGE_KEY)"
 )
 COPY_INSTRUCTION_PATTERN = re.compile(r"^\s*COPY\s+(.+)$", re.IGNORECASE)
 FROM_INSTRUCTION_PATTERN = re.compile(r"^\s*FROM(?:\s|$)", re.IGNORECASE)
@@ -558,6 +575,79 @@ def _check_dockerfile(
         violations.append(Violation(rule, DOCKERFILE_PATH, 1))
 
 
+def _check_agent_tenant_contracts(
+    structure_texts: dict[str, str],
+    scan_texts: dict[str, str],
+    violations: list[Violation],
+) -> None:
+    langgraph_config = structure_texts.get(LANGGRAPH_CONFIG_PATH)
+    if langgraph_config is not None:
+        try:
+            parsed = json.loads(langgraph_config)
+        except json.JSONDecodeError:
+            parsed = {}
+        if (
+            not isinstance(parsed, dict)
+            or not isinstance(parsed.get("auth"), dict)
+            or parsed["auth"].get("path") != LANGGRAPH_AUTH_PATH
+        ):
+            violations.append(
+                Violation(
+                    "LANGGRAPH_FIRST_PARTY_AUTH",
+                    LANGGRAPH_CONFIG_PATH,
+                    1,
+                )
+            )
+
+    auth_module = structure_texts.get(LANGGRAPH_AUTH_MODULE_PATH)
+    required_auth_markers = (
+        "@auth.authenticate",
+        "@auth.on",
+        "@auth.on.threads",
+        "get_user_for_authorization_header",
+    )
+    if auth_module is not None and any(
+        marker not in auth_module for marker in required_auth_markers
+    ):
+        violations.append(
+            Violation(
+                "LANGGRAPH_TENANT_AUTHORIZATION",
+                LANGGRAPH_AUTH_MODULE_PATH,
+                1,
+            )
+        )
+
+    for path, text in scan_texts.items():
+        if not path.startswith("agent_chatui/src/"):
+            continue
+        for line in _line_matches(text, VARIABLE_AGENT_QUERY_PATTERN):
+            violations.append(
+                Violation("VARIABLE_AGENT_ORIGIN", path, line)
+            )
+        for line in _line_matches(text, LEGACY_AGENT_KEY_PATTERN):
+            violations.append(
+                Violation("LEGACY_AGENT_API_KEY", path, line)
+            )
+        for line in _line_matches(text, LEGACY_AGENT_KEY_READ_PATTERN):
+            violations.append(
+                Violation("LEGACY_AGENT_API_KEY", path, line)
+            )
+
+    api_key_module = structure_texts.get(FRONTEND_API_KEY_PATH)
+    if api_key_module is not None and (
+        "headers.Authorization" not in api_key_module
+        or "localStorage.removeItem(LEGACY_API_KEY_STORAGE_KEY)"
+        not in api_key_module
+    ):
+        violations.append(
+            Violation(
+                "AGENT_BEARER_AUTH",
+                FRONTEND_API_KEY_PATH,
+                1,
+            )
+        )
+
+
 def _check_env_example(
     text: str,
     violations: list[Violation],
@@ -876,6 +966,12 @@ def check_repository(
     dockerfile = structure_texts.get(DOCKERFILE_PATH)
     if dockerfile is not None:
         _check_dockerfile(dockerfile, violations)
+
+    _check_agent_tenant_contracts(
+        structure_texts,
+        scan_texts,
+        violations,
+    )
 
     legacy_pattern = re.compile(re.escape(LEGACY_LOGIN_VARIABLE))
     for path, text in scan_texts.items():

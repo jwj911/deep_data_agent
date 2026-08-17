@@ -11,6 +11,7 @@ import { constructOpenInStudioURL, buildDecisionFromState } from "../utils";
 import { Decision, HITLRequest, DecisionType, ActionRequest } from "../types";
 import { useStreamContext } from "@/providers/stream-context";
 import { createRunCorrelation } from "@/lib/request-id";
+import { AGENT_API_URL } from "@/config";
 
 interface ThreadActionsViewProps {
   interrupt: Interrupt<HITLRequest>;
@@ -89,7 +90,6 @@ export function ThreadActionsView({
 }: ThreadActionsViewProps) {
   const stream = useStreamContext();
   const [threadId] = useQueryState("threadId");
-  const [apiUrl] = useQueryState("apiUrl");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [addressedActions, setAddressedActions] = useState<
     Map<number, Decision>
@@ -154,17 +154,10 @@ export function ThreadActionsView({
   }, [interrupt]);
 
   const handleOpenInStudio = () => {
-    if (!apiUrl) {
-      toast.error("Error", {
-        description: "Please set the LangGraph deployment URL in settings.",
-        duration: 5000,
-        richColors: true,
-        closeButton: true,
-      });
-      return;
-    }
-
-    const studioUrl = constructOpenInStudioURL(apiUrl, threadId ?? undefined);
+    const studioUrl = constructOpenInStudioURL(
+      AGENT_API_URL,
+      threadId ?? undefined,
+    );
     window.open(studioUrl, "_blank");
   };
 
@@ -327,16 +320,14 @@ export function ThreadActionsView({
           {threadId && <ThreadIdCopyable threadId={threadId} />}
         </div>
         <div className="flex flex-row items-center justify-start gap-2">
-          {apiUrl && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex items-center gap-1 bg-white"
-              onClick={handleOpenInStudio}
-            >
-              Studio
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex items-center gap-1 bg-white"
+            onClick={handleOpenInStudio}
+          >
+            Studio
+          </Button>
           <ButtonGroup
             handleShowState={() => handleShowSidePanel(true, false)}
             handleShowDescription={() => handleShowSidePanel(false, true)}

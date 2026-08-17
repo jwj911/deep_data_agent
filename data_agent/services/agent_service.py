@@ -10,10 +10,15 @@ from langchain_openai import ChatOpenAI
 
 from data_agent.config.config import ConfigurationError, config
 from data_agent.config.logger import agent_logger
+from data_agent.models.user import User
 from data_agent.observability.context import bind_request_id
 from data_agent.observability.events import emit_event
+from data_agent.services.authorization_service import (
+    AuthorizationDeniedError, Permission, ensure_permission)
 from data_agent.services.cache_service import global_cache_service
 from data_agent.tools.tool_manager import global_tool_manager
+
+_TOOL_POLICY_VERSION = "1"
 
 _BASE_RESEARCH_INSTRUCTIONS = """You are an expert researcher. Your job is to conduct thorough research and then write a polished report.
 
@@ -33,10 +38,24 @@ class AgentInvocationError(RuntimeError):
     """Raised when an upstream agent invocation fails."""
 
 
-def _generate_cache_key(query: str) -> str:
-    """Generate cache key for agent query"""
-    key = f"agent:{query}"
-    return hashlib.md5(key.encode()).hexdigest()
+def _generate_cache_key(query: str, actor_id: int) -> str:
+    """Generate a tenant- and policy-scoped cache key."""
+    tool_policy = ",".join(
+        sorted(global_tool_manager.get_tool_names())
+    )
+    material = "\n".join(
+        (
+            f"tenant:{actor_id}",
+            f"model:{config.MODEL_NAME}",
+            f"base_url:{config.MODEL_BASE_URL}",
+            f"temperature:{config.MODEL_TEMPERATURE}",
+            f"tool_policy:{_TOOL_POLICY_VERSION}:{tool_policy}",
+            f"query:{query}",
+        )
+    )
+    return "agent:" + hashlib.sha256(
+        material.encode("utf-8")
+    ).hexdigest()
 
 
 def _build_system_prompt() -> str:
@@ -90,8 +109,22 @@ class AgentService:
                 self._agent = create_agent_graph()
         return self._agent
 
-    def invoke(self, query: str, request_id: str | None = None) -> str:
+    def invoke(
+        self,
+        query: str,
+        actor: User,
+        request_id: str | None = None,
+    ) -> str:
         """Invoke the agent and propagate stable exceptions to the API layer."""
+        ensure_permission(actor, Permission.AGENT_INVOKE_OWN)
+        actor_id = getattr(actor, "id", None)
+        if (
+            not isinstance(actor_id, int)
+            or isinstance(actor_id, bool)
+            or actor_id <= 0
+        ):
+            raise AuthorizationDeniedError("permission denied")
+
         request_id = request_id or uuid4().hex
         with bind_request_id(request_id) as bound_request_id:
             started_at = perf_counter()
@@ -101,7 +134,7 @@ class AgentService:
                 operation="invoke",
                 outcome="started",
             )
-            cache_key = _generate_cache_key(query)
+            cache_key = _generate_cache_key(query, actor_id)
             cached_result = global_cache_service.get(cache_key)
             if cached_result:
                 emit_event(

@@ -3,7 +3,8 @@
 Deep Data Agent 是一个前后端分离的 AI 数据探索项目。后端同时提供
 FastAPI REST 服务和 LangGraph 图服务，前端使用 Next.js 静态导出，
 MySQL 用于用户、会话与消息持久化，Redis 用于可降级缓存。第一方注册、
-登录与会话所有权校验由 FastAPI 提供。前端、FastAPI、LangGraph、Agent、
+登录与角色由 FastAPI 提供；同一 JWT 同时保护 FastAPI Agent 入口与
+LangGraph thread/run 所有权。前端、FastAPI、LangGraph、Agent、
 工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊断链路。
 
 ## 服务与访问地址
@@ -134,25 +135,37 @@ docker compose --env-file .env -f docker-config/docker-compose.yml down -v
 
 ## 认证边界
 
-本地 LangGraph 聊天默认使用 noop 认证，不校验 JWT。浏览器没有 LangSmith
-API Key 时，前端会省略对应请求头；LangSmith API Key 存储于浏览器
-`localStorage`，仅在存在非空值时发送，且只用于向 LangGraph 服务鉴权。
+FastAPI 与 LangGraph 共用第一方 JWT 签名配置、HS256 算法、过期时间和正整数
+用户 ID `sub` 语义。LangGraph 每次请求都从 MySQL 重新加载用户与当前角色，
+并以数据库用户 ID 字符串作为 owner；调用方提供的 owner metadata 会被服务端
+覆盖。thread 的创建、搜索、读取、history/state、更新、复制、删除和 create_run
+均按 owner 过滤，管理员也不绕过所有权；未声明资源和 assistant 写操作默认拒绝。
 
-前端的第一方登录态与 LangGraph 相互独立，由 FastAPI REST API 提供：
+FastAPI REST API 提供：
 
 - 注册：`POST /api/auth/register`，提交用户名、邮箱和密码，返回用户公开字段。
 - 登录：`POST /api/auth/login`，使用 OAuth2 密码表单（`username`、`password`），
   成功后返回 `access_token`、`token_type=bearer` 和 `expires_in`（单位为秒）。
 - 当前用户：`GET /api/auth/me`，返回持有有效 Token 的用户信息。
 
-签发的 JWT 以用户 ID 作为 `sub`。未配置 JWT 密钥时，认证相关端点返回 503
-`auth_not_configured`；Token 无效、过期或越权时统一返回 401，不泄露具体原因。
-会话资源（`/api/sessions`）按当前用户隔离，访问不属于自己的会话返回 404。
+签发的 JWT 以用户 ID 作为 `sub`。未配置 JWT 密钥时，FastAPI 认证端点返回 503
+`auth_not_configured`；Token 无效或过期时，FastAPI 返回 401，锁定的 LangGraph
+`0.7.28` 认证中间件返回 403，均不泄露具体原因；FastAPI 权限不足返回 403。
+会话资源
+（`/api/sessions`）按当前用户隔离，访问不属于自己的会话返回 404；
+`/api/query` 要求 `agent.invoke_own`，并在路由和 AgentService 两层授权。
 
 前端第一方 Token 存储于 `sessionStorage`（不是 `localStorage`），仅对 FastAPI
-（`NEXT_PUBLIC_REST_API_URL`，默认 `http://localhost:8000`）请求附加
-`Authorization: Bearer`。LangGraph 或其他第三方服务返回 401/403 不会清理第一方
-登录态；只有第一方 FastAPI 返回 401 时，前端才会清除 Token 并跳转回登录页。
+（`NEXT_PUBLIC_REST_API_URL`，默认 `http://localhost:8000`）和固定的 LangGraph
+Origin（`NEXT_PUBLIC_API_URL`，默认 `http://localhost:2024`）请求附加
+`Authorization: Bearer`。浏览器不再接受 `apiUrl`/`assistantId` 查询参数或连接
+表单覆盖 Agent 目标，不再读取或发送 LangGraph API Key；启动时只删除旧
+`localStorage` 键 `lg:chat:apiKey`。只有第一方 FastAPI 返回 401 时，前端才会
+清除 Token 并跳转回登录页。
+
+Chat UI 以 LangGraph threads 作为对话列表、状态和运行历史的主数据；MySQL
+users/RBAC 是身份主数据。既有 MySQL sessions/messages REST API 保留原有所有权
+语义，但不与 LangGraph 双写，也不宣称两套历史同步。
 
 后端认证由以下环境变量控制：
 
@@ -289,7 +302,9 @@ ENABLE_CODE_EXECUTION=false
 
 ## 验证清单
 
-后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph 导出、
+后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph JWT Auth、
+thread/run owner 默认拒绝、assistant 只读边界、Agent 双层授权与租户缓存、
+LangGraph 导出、
 缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
 双用户会话隔离、RBAC 管理、管理员引导、角色迁移、时间字段兼容、请求 ID、
 结构化脱敏事件、诊断报告、发布镜像资产和容器冒烟辅助逻辑：
@@ -319,23 +334,24 @@ git diff --check
 git status --short
 ```
 
-`restore-runtime-release-gates` 已取得 2026-08-16 本地证据：Python 3.12.9 下
-189 项测试通过，其中迁移定向测试 7 项；Node.js 22.22.2、pnpm 10.5.1 下
-`typecheck`、零警告 `lint`、`format:check` 和 `build` 通过。Docker Linux Engine
-从当前源码重建前后端镜像后，MySQL、Redis、FastAPI、LangGraph、Frontend 五服务
-均健康，FastAPI `/api/health`、LangGraph `/info` 和前端 `/data_copilot/` 三个
-HTTP 端点通过；空库到达唯一 head `8f3c1b7a2d4e`，head 重启 canary 保持不变，
-已知旧基线升级后 canary 保持且角色回填为 `user`。该过程只使用专用假配置和
-不可外连的模型地址，不发送业务查询、未调用模型或搜索外部服务；容器、网络、
-匿名卷、临时配置及前端生成物均已清理。
+`secure-agent-tenant-boundaries` 已取得 2026-08-17 本地证据：Python 3.12.9 下
+250 项测试通过，其中迁移定向测试 7 项；isort、发布契约、Compose 解析和差异
+检查通过。Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、
+`format:check` 通过；同一前端源码此前已完成 `build`，本次最终重试仅因本机无法
+访问 Google Fonts 而失败，目标 SHA 仍须以 Hosted Frontend Job 为最终构建证据。
+Docker Linux Engine 从当前源码重建镜像后，空库双用户 Agent 隔离、head 重启和
+已知旧基线升级三场景均通过。双用户场景覆盖匿名拒绝、伪造 owner、固定
+assistant、并发重复搜索、跨用户 history/state/copy/读改删/create_run、管理员
+不绕过及无 MySQL 双写。该过程只使用专用假配置和不可外连的模型地址，不发送业务
+查询、未调用模型或搜索外部服务；容器、网络、卷、临时配置及生成物均已清理。
 
-implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions
-run `31959537002` 已为 `completed/success`；Backend、Frontend、Release Contracts、
-Container Smoke 四个 Job 均为 `success`，Container Smoke 的空库、head 重启、
-legacy 升级和 cleanup 均为 `success`。需要真实模型的产品行为冒烟仍须由授权人员
-人工触发，并使用脱敏或专用测试数据；密钥、Token、`.env` 和业务数据不得提交到
-版本控制。本轮不关闭 `AUD-006` 的依赖/镜像/Actions 可重复性，也不关闭
-`AUD-007` 的未知或漂移 schema fail-closed 边界。
+前一 `restore-runtime-release-gates` implementation SHA
+`30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
+`31959537002` 已为 `completed/success`；该结果不能替代本 change-id 目标 SHA
+的 Hosted 验证。需要真实模型的产品行为冒烟仍须由授权人员人工触发，并使用脱敏
+或专用测试数据；密钥、Token、`.env` 和业务数据不得提交到版本控制。本轮不关闭
+`AUD-006` 的依赖/镜像/Actions 可重复性，也不关闭 `AUD-007` 的未知或漂移 schema
+fail-closed 边界。
 
 配置有效 `JWT_SECRET_KEY` 后，第一方认证冒烟检查建议覆盖：注册并登录两个
 不同用户，各自通过 `GET /api/auth/me` 确认身份；用一个用户的 Token 访问另一个
@@ -352,9 +368,9 @@ legacy 升级和 cleanup 均为 `success`。需要真实模型的产品行为冒
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
-  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 15 项
-  （3 P0 / 3 P1 / 8 P2 / 1 P3）；生产发布判断仍为 NO-GO。
-- `.trae/documents/roadmap.md`：8 个已完成 change-id 和 11 个未启动候选迭代。
+  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 13 项
+  （1 P0 / 3 P1 / 8 P2 / 1 P3）；生产发布判断仍为 NO-GO。
+- `.trae/documents/roadmap.md`：9 个已完成 change-id 和 10 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
@@ -362,3 +378,5 @@ legacy 升级和 cleanup 均为 `success`。需要真实模型的产品行为冒
 - `.trae/specs/restore-runtime-release-gates/`：已完成的镜像迁移资产、全仓库
   凭据扫描和容器发布门禁规格；Hosted 四个 Job 已在 implementation SHA
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
+- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地验收、等待目标 SHA
+  Hosted 四个 Job 的 Agent 第一方身份、租户所有权和固定浏览器 Origin 规格。

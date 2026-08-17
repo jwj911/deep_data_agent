@@ -1,12 +1,13 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from data_agent.config.config import ConfigurationError, config
 from data_agent.config.database import init_db
 from data_agent.config.logger import agent_logger
+from data_agent.models.user import User
 from data_agent.observability.context import get_or_create_request_id
 from data_agent.observability.middleware import (REQUEST_ID_HEADER,
                                                  ObservabilityMiddleware)
@@ -14,6 +15,8 @@ from data_agent.observability.rate_limit_middleware import RateLimitMiddleware
 from data_agent.routes import admin, auth, session
 from data_agent.services.agent_service import (AgentInvocationError,
                                                global_agent_service)
+from data_agent.services.authorization_service import (Permission,
+                                                       require_permission)
 
 
 @asynccontextmanager
@@ -66,12 +69,19 @@ def _error_detail(code: str, message: str, request_id: str) -> dict[str, str]:
 
 
 @app.post("/api/query", response_model=QueryResponse)
-async def query_agent(request: QueryRequest):
+async def query_agent(
+    request: QueryRequest,
+    current_user: User = Depends(
+        require_permission(Permission.AGENT_INVOKE_OWN)
+    ),
+):
     """Endpoint for querying the agent"""
     request_id = get_or_create_request_id()
     try:
         response = global_agent_service.invoke(
-            request.query, request_id=request_id
+            request.query,
+            actor=current_user,
+            request_id=request_id,
         )
         return QueryResponse(response=response)
     except ConfigurationError as exc:

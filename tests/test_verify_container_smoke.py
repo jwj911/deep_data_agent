@@ -212,6 +212,130 @@ def test_verify_http_endpoints_checks_all_three_non_business_routes(
     ]
 
 
+def test_tenant_isolation_covers_auth_owner_and_no_double_write(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls = []
+    user_ids = {
+        smoke.TENANT_USERS[0][0]: 101,
+        smoke.TENANT_USERS[1][0]: 202,
+    }
+    tokens = {"token-a": 101, "token-b": 202}
+    thread_ids = {101: "thread-a", 202: "thread-b"}
+
+    def fake_json_request(
+        method,
+        url,
+        *,
+        body=None,
+        token=None,
+        form=None,
+    ):
+        calls.append((method, url, body, token, form))
+        if url.endswith("/api/auth/register"):
+            return 200, {"id": user_ids[body["username"]]}
+        if url.endswith("/api/auth/login"):
+            suffix = "a" if form["username"].endswith("-a") else "b"
+            return 200, {"access_token": f"token-{suffix}"}
+        if url.endswith("/api/query"):
+            return 401, {"detail": "invalid"}
+        if url.endswith("/threads/search") and token is None:
+            return 403, {"detail": "invalid"}
+        if url.endswith("/assistants/search"):
+            if body["graph_id"] == "forged":
+                return 404, {"detail": "not found"}
+            return 200, [
+                {
+                    "assistant_id": "assistant-agent",
+                    "graph_id": "agent",
+                }
+            ]
+        if url.endswith("/assistants/assistant-agent"):
+            return 200, {
+                "assistant_id": "assistant-agent",
+                "graph_id": "agent",
+            }
+        if url.endswith("/assistants") and method == "POST":
+            return 403, {"detail": "forbidden"}
+        if url.endswith("/threads") and method == "POST":
+            user_id = tokens[token]
+            return 200, {
+                "thread_id": thread_ids[user_id],
+                "metadata": {
+                    "graph_id": "agent",
+                    "owner": str(user_id),
+                },
+            }
+        if url.endswith("/threads/search"):
+            user_id = tokens[token]
+            return 200, [{"thread_id": thread_ids[user_id]}]
+        if token == "token-b" and url.endswith("/threads/thread-a/copy"):
+            return 409, {"detail": "conflict"}
+        if token == "token-b" and "/threads/thread-a" in url:
+            return 404, {"detail": "not found"}
+        if token == "token-a" and url.endswith("/threads/thread-a"):
+            return 200, {
+                "thread_id": "thread-a",
+                "metadata": {"owner": "101"},
+            }
+        raise AssertionError((method, url, token))
+
+    mysql_calls = []
+
+    def fake_mysql(context, sql, operation):
+        mysql_calls.append((sql, operation))
+        if operation == "tenant MySQL session count":
+            return "0\n"
+        return ""
+
+    monkeypatch.setattr(smoke, "_json_request", fake_json_request)
+    monkeypatch.setattr(smoke, "_mysql", fake_mysql)
+
+    smoke.verify_tenant_isolation(
+        _context(tmp_path),
+        fastapi_url="http://127.0.0.1:8000/api/health",
+        langgraph_url="http://127.0.0.1:2024/info",
+    )
+
+    assert any(
+        url.endswith("/threads/thread-a/runs") and token == "token-b"
+        for _, url, _, token, _ in calls
+    )
+    assert any(
+        url.endswith("/threads/thread-a/history") and token == "token-b"
+        for _, url, _, token, _ in calls
+    )
+    assert any(
+        url.endswith("/threads/thread-a/state")
+        and method == "POST"
+        and token == "token-b"
+        for method, url, _, token, _ in calls
+    )
+    assert any(
+        url.endswith("/threads/thread-a/copy") and token == "token-b"
+        for _, url, _, token, _ in calls
+    )
+    assert sum(
+        url.endswith("/threads/search") and token in tokens
+        for _, url, _, token, _ in calls
+    ) == 4
+    assert any(
+        url.endswith("/assistants")
+        and method == "POST"
+        and token == "token-a"
+        for method, url, _, token, _ in calls
+    )
+    assert any(
+        operation == "tenant admin role update"
+        for _, operation in mysql_calls
+    )
+    assert any(
+        operation == "tenant MySQL session count"
+        for _, operation in mysql_calls
+    )
+
+
 @pytest.mark.parametrize(
     "output",
     ["", "0001\n0002\n", "unexpected\n"],

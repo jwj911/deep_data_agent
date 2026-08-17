@@ -12,11 +12,13 @@ import pytest
 
 from data_agent.config.config import Config, ConfigurationError, config
 from data_agent.config.logger import RedactingFormatter, logger
+from data_agent.models.user import User, UserRole
 from data_agent.observability.context import (bind_request_id, get_request_id,
                                               normalize_request_id,
                                               request_id_from_runnable_config)
 from data_agent.observability.events import emit_event
 from data_agent.services.agent_service import AgentService
+from data_agent.services.auth_service import get_current_user
 
 VALID_REQUEST_ID = "a" * 32
 OTHER_REQUEST_ID = "b" * 32
@@ -229,18 +231,25 @@ def test_cors_allows_and_exposes_request_id() -> None:
 def test_agent_error_response_uses_middleware_request_id(monkeypatch) -> None:
     from data_agent import agent_server
 
+    actor = User(id=1, role=UserRole.USER.value)
+    previous_overrides = agent_server.app.dependency_overrides.copy()
+    agent_server.app.dependency_overrides[get_current_user] = lambda: actor
     monkeypatch.setattr(
         agent_server.global_agent_service,
         "invoke",
         Mock(side_effect=ConfigurationError("model unavailable")),
     )
 
-    response = _request(
-        "POST",
-        "/api/query",
-        headers={"X-Request-ID": VALID_REQUEST_ID},
-        json={"query": "test"},
-    )
+    try:
+        response = _request(
+            "POST",
+            "/api/query",
+            headers={"X-Request-ID": VALID_REQUEST_ID},
+            json={"query": "test"},
+        )
+    finally:
+        agent_server.app.dependency_overrides.clear()
+        agent_server.app.dependency_overrides.update(previous_overrides)
 
     assert response.status_code == 503
     assert response.headers["X-Request-ID"] == VALID_REQUEST_ID
@@ -260,7 +269,15 @@ def test_agent_service_propagates_request_id_to_langgraph(monkeypatch) -> None:
     agent.invoke.return_value = {"messages": [message]}
     service = AgentService(agent=agent)
 
-    assert service.invoke("query", request_id=VALID_REQUEST_ID) == "answer"
+    actor = User(id=1, role=UserRole.USER.value)
+    assert (
+        service.invoke(
+            "query",
+            actor=actor,
+            request_id=VALID_REQUEST_ID,
+        )
+        == "answer"
+    )
 
     _, kwargs = agent.invoke.call_args
     assert kwargs["config"]["configurable"]["request_id"] == VALID_REQUEST_ID

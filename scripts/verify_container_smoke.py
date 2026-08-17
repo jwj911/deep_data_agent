@@ -7,6 +7,7 @@ import ast
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -156,6 +157,11 @@ REDACTED_ENV_NAMES = {
     "MYSQL_ROOT_PASSWORD",
     "TAVILY_API_KEY",
 }
+TENANT_USERS = (
+    ("container-tenant-a", "container-tenant-a@example.com"),
+    ("container-tenant-b", "container-tenant-b@example.com"),
+)
+TENANT_PASSWORD = "container-tenant-test-password"
 
 
 class SmokeError(RuntimeError):
@@ -379,6 +385,327 @@ def verify_http_endpoints(
                 raise SmokeError("FastAPI health response is invalid")
 
 
+def _json_request(
+    method: str,
+    url: str,
+    *,
+    body: dict[str, object] | None = None,
+    token: str | None = None,
+    form: dict[str, str] | None = None,
+) -> tuple[int, object]:
+    headers = {"Accept": "application/json"}
+    data: bytes | None = None
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    if form is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        data = parse.urlencode(form).encode("utf-8")
+    elif body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+    http_request = request.Request(
+        url,
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with request.urlopen(
+            http_request,
+            timeout=HTTP_TIMEOUT_SECONDS,
+        ) as response:
+            status = response.status
+            content = response.read(65536)
+    except error.HTTPError as exc:
+        status = exc.code
+        content = exc.read(65536)
+    except (error.URLError, OSError, TimeoutError) as exc:
+        raise SmokeError("tenant HTTP request did not complete") from exc
+    if not content:
+        return status, None
+    try:
+        return status, json.loads(content)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SmokeError("tenant HTTP response is invalid") from exc
+
+
+def _service_base(url: str, suffix: str) -> str:
+    normalized = url.rstrip("/")
+    if not normalized.endswith(suffix):
+        raise SmokeError("tenant HTTP base URL is invalid")
+    return normalized[: -len(suffix)]
+
+
+def _register_tenant_user(
+    fastapi_base: str,
+    username: str,
+    email: str,
+) -> tuple[int, str]:
+    status, registered = _json_request(
+        "POST",
+        f"{fastapi_base}/api/auth/register",
+        body={
+            "username": username,
+            "email": email,
+            "password": TENANT_PASSWORD,
+        },
+    )
+    if (
+        status != 200
+        or not isinstance(registered, dict)
+        or not isinstance(registered.get("id"), int)
+    ):
+        raise SmokeError("tenant registration failed")
+    status, login = _json_request(
+        "POST",
+        f"{fastapi_base}/api/auth/login",
+        form={
+            "username": username,
+            "password": TENANT_PASSWORD,
+        },
+    )
+    if (
+        status != 200
+        or not isinstance(login, dict)
+        or not isinstance(login.get("access_token"), str)
+    ):
+        raise SmokeError("tenant login failed")
+    return registered["id"], login["access_token"]
+
+
+def _thread_ids(payload: object) -> set[str]:
+    if not isinstance(payload, list):
+        raise SmokeError("thread search response is invalid")
+    thread_ids: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict) or not isinstance(
+            item.get("thread_id"),
+            str,
+        ):
+            raise SmokeError("thread search response is invalid")
+        thread_ids.add(item["thread_id"])
+    return thread_ids
+
+
+def _search_thread_ids(
+    langgraph_base: str,
+    token: str,
+) -> set[str]:
+    status, search = _json_request(
+        "POST",
+        f"{langgraph_base}/threads/search",
+        token=token,
+        body={"limit": 100},
+    )
+    if status != 200:
+        raise SmokeError("tenant thread search failed")
+    return _thread_ids(search)
+
+
+def verify_tenant_isolation(
+    context: ComposeContext,
+    *,
+    fastapi_url: str,
+    langgraph_url: str,
+) -> None:
+    """Verify two-user Agent isolation without invoking the model."""
+    fastapi_base = _service_base(fastapi_url, "/api/health")
+    langgraph_base = _service_base(langgraph_url, "/info")
+    users = [
+        _register_tenant_user(fastapi_base, username, email)
+        for username, email in TENANT_USERS
+    ]
+
+    status, _ = _json_request(
+        "POST",
+        f"{fastapi_base}/api/query",
+        body={"query": "must not run"},
+    )
+    if status != 401:
+        raise SmokeError("anonymous FastAPI Agent request was not rejected")
+    status, _ = _json_request(
+        "POST",
+        f"{langgraph_base}/threads/search",
+        body={"limit": 10},
+    )
+    if status != 403:
+        raise SmokeError("anonymous LangGraph request was not rejected")
+
+    status, assistants = _json_request(
+        "POST",
+        f"{langgraph_base}/assistants/search",
+        token=users[0][1],
+        body={"graph_id": "agent", "limit": 10},
+    )
+    if (
+        status != 200
+        or not isinstance(assistants, list)
+        or any(
+            not isinstance(item, dict)
+            or item.get("graph_id") != "agent"
+            or not isinstance(item.get("assistant_id"), str)
+            for item in assistants
+        )
+    ):
+        raise SmokeError("assistant search escaped the application graph")
+    status, _ = _json_request(
+        "POST",
+        f"{langgraph_base}/assistants/search",
+        token=users[0][1],
+        body={"graph_id": "forged", "limit": 10},
+    )
+    if status not in {400, 404}:
+        raise SmokeError("unknown assistant graph was not rejected")
+    if assistants:
+        assistant_id = assistants[0]["assistant_id"]
+        status, assistant = _json_request(
+            "GET",
+            f"{langgraph_base}/assistants/{assistant_id}",
+            token=users[0][1],
+        )
+        if (
+            status != 200
+            or not isinstance(assistant, dict)
+            or assistant.get("graph_id") != "agent"
+        ):
+            raise SmokeError("application assistant read failed")
+    status, _ = _json_request(
+        "POST",
+        f"{langgraph_base}/assistants",
+        token=users[0][1],
+        body={"graph_id": "agent", "name": "must-not-create"},
+    )
+    if status != 403:
+        raise SmokeError("assistant write operation was allowed")
+
+    created: list[dict[str, object]] = []
+    for index, (user_id, token) in enumerate(users):
+        status, thread = _json_request(
+            "POST",
+            f"{langgraph_base}/threads",
+            token=token,
+            body={
+                "metadata": {
+                    "graph_id": "agent",
+                    "owner": str(users[1 - index][0]),
+                }
+            },
+        )
+        if (
+            status != 200
+            or not isinstance(thread, dict)
+            or not isinstance(thread.get("thread_id"), str)
+            or not isinstance(thread.get("metadata"), dict)
+            or thread["metadata"].get("owner") != str(user_id)
+        ):
+            raise SmokeError("tenant thread creation was not owner-scoped")
+        created.append(thread)
+
+    search_requests = [
+        (index, token)
+        for _ in range(2)
+        for index, (_, token) in enumerate(users)
+    ]
+    with ThreadPoolExecutor(max_workers=len(search_requests)) as executor:
+        searches = [
+            executor.submit(_search_thread_ids, langgraph_base, token)
+            for _, token in search_requests
+        ]
+        search_results = [
+            (index, search.result())
+            for (index, _), search in zip(
+                search_requests,
+                searches,
+                strict=True,
+            )
+        ]
+    for index, visible in search_results:
+        own_id = str(created[index]["thread_id"])
+        other_id = str(created[1 - index]["thread_id"])
+        if own_id not in visible or other_id in visible:
+            raise SmokeError("tenant thread search crossed owners")
+
+    thread_a = str(created[0]["thread_id"])
+    token_a = users[0][1]
+    token_b = users[1][1]
+    for method, path, body in (
+        ("GET", f"/threads/{thread_a}", None),
+        ("GET", f"/threads/{thread_a}/history", None),
+        ("GET", f"/threads/{thread_a}/state", None),
+        (
+            "POST",
+            f"/threads/{thread_a}/state",
+            {"values": {}},
+        ),
+        (
+            "PATCH",
+            f"/threads/{thread_a}",
+            {"metadata": {"changed": True}},
+        ),
+        ("POST", f"/threads/{thread_a}/copy", None),
+        ("DELETE", f"/threads/{thread_a}", None),
+        (
+            "POST",
+            f"/threads/{thread_a}/runs",
+            {"assistant_id": "agent", "input": None},
+        ),
+    ):
+        status, _ = _json_request(
+            method,
+            f"{langgraph_base}{path}",
+            token=token_b,
+            body=body,
+        )
+        rejected_statuses = (
+            {403, 404, 409}
+            if path.endswith("/copy")
+            else {403, 404}
+        )
+        if status not in rejected_statuses:
+            raise SmokeError("cross-tenant thread operation was allowed")
+
+    _mysql(
+        context,
+        (
+            "UPDATE users SET role = 'admin' "
+            f"WHERE id = {users[1][0]};"
+        ),
+        "tenant admin role update",
+    )
+    status, _ = _json_request(
+        "GET",
+        f"{langgraph_base}/threads/{thread_a}",
+        token=token_b,
+    )
+    if status not in {403, 404}:
+        raise SmokeError("administrator bypassed thread ownership")
+
+    status, own_thread = _json_request(
+        "GET",
+        f"{langgraph_base}/threads/{thread_a}",
+        token=token_a,
+    )
+    if (
+        status != 200
+        or not isinstance(own_thread, dict)
+        or not isinstance(own_thread.get("metadata"), dict)
+        or own_thread["metadata"].get("owner") != str(users[0][0])
+        or own_thread["metadata"].get("changed") is not None
+    ):
+        raise SmokeError("cross-tenant rejection changed the owner thread")
+
+    session_count = _mysql(
+        context,
+        (
+            "SELECT COUNT(*) FROM sessions "
+            f"WHERE user_id IN ({users[0][0]}, {users[1][0]});"
+        ),
+        "tenant MySQL session count",
+    ).strip()
+    if session_count != "0":
+        raise SmokeError("Chat UI thread was double-written to MySQL")
+
+
 def verify_revision(context: ComposeContext, expected_head: str) -> None:
     output = _mysql(context, REVISION_SQL, "migration revision query")
     revisions = [
@@ -439,6 +766,12 @@ def verify_runtime(
     verify_services(context)
     verify_http_endpoints(fastapi_url, langgraph_url, frontend_url)
     verify_revision(context, expected_head)
+    if scenario == "empty":
+        verify_tenant_isolation(
+            context,
+            fastapi_url=fastapi_url,
+            langgraph_url=langgraph_url,
+        )
     if scenario in {"head", "legacy"}:
         _verify_canary(context, legacy_schema=False)
 

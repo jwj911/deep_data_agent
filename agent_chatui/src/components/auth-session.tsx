@@ -18,7 +18,7 @@ import {
   type AuthUser,
   getCurrentUser,
 } from "@/lib/auth-client";
-import { clearAuthToken, getAuthToken } from "@/lib/api-key";
+import { clearAuthToken, clearLegacyApiKey, getAuthToken } from "@/lib/api-key";
 
 interface AuthSessionValue {
   user: AuthUser;
@@ -37,6 +37,7 @@ export function AuthSession({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    clearLegacyApiKey();
 
     const goToLogin = () => {
       if (!active) return;

@@ -14,6 +14,9 @@ MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 USER_MODEL_PATH = "data_agent/models/user.py"
 AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
 EVENTS_MODULE_PATH = "data_agent/observability/events.py"
+LANGGRAPH_CONFIG_PATH = "langgraph.json"
+LANGGRAPH_AUTH_MODULE_PATH = "data_agent/security/langgraph_auth.py"
+FRONTEND_API_KEY_PATH = "agent_chatui/src/lib/api-key.ts"
 REQUIRED_SCAN_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
@@ -23,6 +26,9 @@ REQUIRED_SCAN_FILES = {
     USER_MODEL_PATH,
     AUDIT_MODULE_PATH,
     EVENTS_MODULE_PATH,
+    LANGGRAPH_CONFIG_PATH,
+    LANGGRAPH_AUTH_MODULE_PATH,
+    FRONTEND_API_KEY_PATH,
 }
 
 
@@ -140,6 +146,32 @@ SAFE_FIELDS = {
     "target_ref",
 }
 """
+VALID_LANGGRAPH_CONFIG = """\
+{
+  "graphs": {"agent": "./data_agent/agent_graph.py:agent"},
+  "auth": {
+    "path": "./data_agent/security/langgraph_auth.py:auth"
+  }
+}
+"""
+VALID_LANGGRAPH_AUTH = """\
+@auth.authenticate
+def authenticate(authorization):
+    return get_user_for_authorization_header(authorization)
+
+@auth.on
+async def deny(ctx, value):
+    return False
+
+@auth.on.threads
+async def owner(ctx, value):
+    return {"owner": ctx.user.identity}
+"""
+VALID_FRONTEND_API_KEY = """\
+const LEGACY_API_KEY_STORAGE_KEY = "lg:chat:apiKey";
+window.localStorage.removeItem(LEGACY_API_KEY_STORAGE_KEY);
+headers.Authorization = `Bearer ${authToken}`;
+"""
 
 
 def _write(root: Path, relative_path: str, text: str) -> None:
@@ -173,6 +205,9 @@ def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, USER_MODEL_PATH, VALID_USER_MODEL)
     _write(root, AUDIT_MODULE_PATH, VALID_AUDIT_MODULE)
     _write(root, EVENTS_MODULE_PATH, VALID_EVENTS_MODULE)
+    _write(root, LANGGRAPH_CONFIG_PATH, VALID_LANGGRAPH_CONFIG)
+    _write(root, LANGGRAPH_AUTH_MODULE_PATH, VALID_LANGGRAPH_AUTH)
+    _write(root, FRONTEND_API_KEY_PATH, VALID_FRONTEND_API_KEY)
     _write(
         root,
         f"{MIGRATIONS_VERSIONS_PATH}/0001_initial.py",
@@ -629,6 +664,83 @@ def test_legacy_login_variable_and_main_output_are_redacted(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == f"CREDENTIAL_PATTERN {source_path}:7\n"
+
+
+def test_langgraph_first_party_auth_path_is_required(tmp_path) -> None:
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        LANGGRAPH_CONFIG_PATH,
+        VALID_LANGGRAPH_CONFIG.replace(
+            "./data_agent/security/langgraph_auth.py:auth",
+            "./unsafe.py:auth",
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "LANGGRAPH_FIRST_PARTY_AUTH"
+    ] == [("LANGGRAPH_FIRST_PARTY_AUTH", LANGGRAPH_CONFIG_PATH)]
+
+
+@pytest.mark.parametrize(
+    ("source", "rule"),
+    [
+        (
+            'const [apiUrl] = useQueryState("apiUrl");\n',
+            "VARIABLE_AGENT_ORIGIN",
+        ),
+        (
+            'const [assistant] = useQueryState("assistantId");\n',
+            "VARIABLE_AGENT_ORIGIN",
+        ),
+        ("const key = getApiKey();\n", "LEGACY_AGENT_API_KEY"),
+        ('headers["X-Api-Key"] = key;\n', "LEGACY_AGENT_API_KEY"),
+        (
+            "localStorage.getItem(LEGACY_API_KEY_STORAGE_KEY);\n",
+            "LEGACY_AGENT_API_KEY",
+        ),
+    ],
+)
+def test_variable_agent_connection_and_legacy_key_are_rejected(
+    tmp_path,
+    source,
+    rule,
+) -> None:
+    scan_files = _create_minimal_repository(tmp_path)
+    source_path = "agent_chatui/src/unsafe-agent.ts"
+    _write(tmp_path, source_path, source)
+    scan_files.add(source_path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path, item.line)
+        for item in violations
+        if item.rule == rule
+    ] == [(rule, source_path, 1)]
+
+
+def test_agent_bearer_header_and_legacy_key_cleanup_are_required(
+    tmp_path,
+) -> None:
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        FRONTEND_API_KEY_PATH,
+        "export const headers = {};\n",
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "AGENT_BEARER_AUTH"
+    ] == [("AGENT_BEARER_AUTH", FRONTEND_API_KEY_PATH)]
 
 
 @pytest.mark.parametrize(

@@ -36,27 +36,23 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
 - Docker Compose：编排 MySQL、Redis、FastAPI、LangGraph 和前端 5 个服务。
 
-仓库保留 8 个已完成 change-id；最近完成的是
-`.trae/specs/restore-runtime-release-gates/`，补齐后端镜像迁移资产、全版本控制
-文本凭据扫描和 Container Smoke 工作流。该完成状态已有本地与 Hosted 证据；
-implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions
-run `31959537002` 已为 `completed/success`。
+仓库现有 9 个已完成 change-id；最近完成本地验收的是
+`.trae/specs/secure-agent-tenant-boundaries/`，让第一方 JWT 贯穿 FastAPI Agent、
+LangGraph thread/run 和前端固定 Origin，并按用户隔离 Agent 缓存。目标 SHA 的
+Hosted 四 Job 证据在首次实现提交推送后补录。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
 历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
-`AUD-014`、`AUD-011`、`AUD-015`，仍开放 15 项（3 P0 / 3 P1 / 8 P2 / 1 P3），
+`AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、`AUD-003`，仍开放 13 项
+（1 P0 / 3 P1 / 8 P2 / 1 P3），
 生产发布判断仍为 NO-GO；`AUD-006`、`AUD-007` 等边界不因本轮容器证据而关闭。
-Roadmap 现有 11 个未启动候选，下一候选继续按风险驱动排序。
+Roadmap 现有 10 个未启动候选，下一候选继续按风险驱动排序。
 
-本轮本地证据为 Python 3.12.9 下 189 项测试、迁移定向测试 7 项，以及 Node.js
-22.22.2、pnpm 10.5.1 下四项前端门禁。当前源码镜像的五服务、三个非业务 HTTP
-端点、唯一 migration head、head canary 和已知旧基线升级均通过，旧基线角色回填
-为 `user`；过程未调用外部模型/搜索或发送业务查询，容器、网络、匿名卷、临时配置
-和生成物已完整清理。
-
-本轮 Hosted 证据为上述 run 的 Backend、Frontend、Release Contracts、Container
-Smoke 四个 Job 均为 `success`；Container Smoke 的空库、head 重启、legacy 升级
-和 cleanup 均为 `success`。
+本轮本地证据为 Python 3.12.9 下 250 项测试、迁移定向测试 7 项；Node.js
+22.22.2、pnpm 10.5.1 下 typecheck、零警告 lint、format:check 通过，同一前端
+源码已有 build 通过证据，最终本地重试因 Google Fonts 网络不可达失败。当前源码
+镜像的五服务、空库双用户 Agent 隔离、head 重启和已知旧基线升级均通过；过程
+未调用外部模型/搜索或发送业务查询，容器、网络、卷、临时配置和生成物已完整清理。
 
 ## 3. 关键结构
 
@@ -91,6 +87,7 @@ deep_data_agent/
 │   ├── models/
 │   ├── observability/
 │   ├── routes/
+│   ├── security/
 │   ├── services/
 │   └── tools/
 ├── docker-config/
@@ -107,11 +104,13 @@ deep_data_agent/
 
 ### 3.1 服务入口
 
-- `langgraph.json` 导出 `data_agent.agent_graph:agent`。该入口不依赖 MySQL 建表。
+- `langgraph.json` 导出 `data_agent.agent_graph:agent`，并加载
+  `data_agent.security.langgraph_auth:auth`。LangGraph Auth 读取 MySQL 用户和
+  当前角色，但不负责建表。
 - `data_agent.agent_server:app` 是 FastAPI ASGI 入口，数据库初始化只发生在应用
   生命周期。
-- `/api/health` 不触发模型调用；`/api/query` 将配置错误和上游错误映射为稳定的
-  非 2xx 响应。
+- `/api/health` 不触发模型调用；`/api/query` 要求 `agent.invoke_own`，并将配置
+  错误和上游错误映射为稳定的非 2xx 响应。
 - `data_agent/routes/auth.py` 提供注册、登录和 `/me`；
   `data_agent/routes/session.py` 提供受保护的会话与消息接口。
 - `data_agent/routes/admin.py` 提供受 RBAC 保护的用户列表和他人角色变更接口；
@@ -122,9 +121,12 @@ deep_data_agent/
 - `NEXT_PUBLIC_API_URL` 和 `NEXT_PUBLIC_ASSISTANT_ID` 用于 LangGraph。
 - `NEXT_PUBLIC_REST_API_URL` 用于 FastAPI 第一方认证和会话接口。
 - 两类公开地址在静态构建时写入，必须可由浏览器访问，不能使用 Docker 内部服务名。
-- 第一方 JWT 存储在 `sessionStorage`，只附加到 FastAPI 请求。
-- 可选 LangGraph API Key 使用独立 `localStorage` 键；非 FastAPI 的 401/403 不得
-  清除第一方登录态。
+- 第一方 JWT 存储在 `sessionStorage`，只附加到配置的 FastAPI 与固定 LangGraph
+  Origin；不得进入 URL、日志或持久化存储。
+- `apiUrl`/`assistantId` 查询状态、连接表单、`X-Api-Key` 和 LangGraph API Key
+  读写均已移除；启动时只清理旧 `lg:chat:apiKey`。
+- Chat UI 以 LangGraph threads 为对话主数据；MySQL users/RBAC 为身份主数据，
+  既有 sessions/messages REST API 不与 LangGraph 双写。
 - REST 请求使用 `X-Request-ID`；LangGraph run 通过 `configurable` 与
   `metadata` 传递独立请求 ID。不得把提示词、消息正文或用户身份写入关联字段。
 
@@ -212,6 +214,10 @@ Moonshot 或 Tavily。
 覆盖范围包括：
 
 - LangGraph/FastAPI 入口、生命周期和健康检查。
+- LangGraph 第一方 JWT、当前数据库角色、全局默认拒绝、thread/run owner、
+  固定 assistant 只读边界和 FastAPI Agent 双层授权。
+- 双用户租户缓存、前端固定 Origin/旧 Key 发布契约，以及容器中的并发重复搜索、
+  跨租户 history/state/copy/读改删/create_run 和管理员不绕过。
 - 缺失模型配置、Redis 降级、代码执行开关和 Agent 错误映射。
 - JWT 配置、注册、登录、`/me`、Token 异常和 CORS。
 - 双用户会话读写删隔离及输入校验无部分写入。
@@ -229,10 +235,10 @@ Moonshot 或 Tavily。
 head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用户冒烟。没有 Docker
 运行证据时，不得声称容器验收通过。
 
-2026-08-16 的当前工作树已取得 Python 3.12.9 共 189 项测试、7 项迁移定向测试、
-Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁，以及本地 Docker 五服务发布冒烟证据。
-implementation SHA `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 Hosted 四个
-Job 也已在 run `31959537002` 验证成功。
+2026-08-17 的当前工作树已取得 Python 3.12.9 共 250 项测试、7 项迁移定向测试、
+Node.js 22.22.2 与 pnpm 10.5.1 的 typecheck、零警告 lint、format:check，以及
+本地 Docker 五服务三场景发布冒烟证据。目标 SHA 的 Hosted 四个 Job 待推送后
+补录；不得用先前 SHA 的成功替代。
 
 ## 7. 安全现状
 
@@ -240,6 +246,10 @@ Job 也已在 run `31959537002` 验证成功。
 
 - JWT 密钥来自环境变量；无有效密钥时认证与会话接口返回稳定 503，健康检查可用。
 - JWT `sub` 使用用户 ID，认证依赖校验签名、算法、有效期和用户存在性。
+- 同一 JWT 保护 FastAPI Agent 与 LangGraph；每次 LangGraph 请求读取数据库当前
+  角色，thread/run 按 owner 默认隔离，管理员不绕过所有权。
+- Agent 缓存键包含用户、模型、Base URL、温度、工具策略版本和查询的 SHA-256
+  摘要；同查询不会跨用户复用。
 - CORS 使用明确白名单，启用凭据时不允许通配符。
 - 会话和消息在服务层同时按 `session_id` 与 `user_id` 过滤；越权统一返回 404。
 - 第一方 Token 使用 `sessionStorage`，不写 URL、日志或错误提示。
@@ -252,7 +262,8 @@ Job 也已在 run `31959537002` 验证成功。
 
 ### 仍有限制
 
-- 本地 LangGraph 使用 noop 认证，第一方 JWT 只保护 FastAPI 认证与会话接口。
+- 当前锁定的容器运行时 `langgraph-api 0.7.28` 已 EOL；升级、兼容回归与依赖锁定
+  归入 `AUD-006`/`stabilize-delivery-baseline`，本轮不静默扩大升级范围。
 - 已加入按身份维度的请求限流与固定角色 RBAC，但仍无分布式令牌桶、自动封禁、
   Refresh Token、密码找回、邮箱验证、OAuth、自定义角色或管理员前端。
 - 管理审计复用有界本地结构化日志，不是不可变长期审计数据库，也未接入外部 SIEM。
@@ -268,7 +279,7 @@ Job 也已在 run `31959537002` 验证成功。
   通知；引入这些组件前必须另行评审成本、保留周期和访问控制。
 - 本机默认 Node.js 25.2.1 超出支持的 22.x 范围；本轮通过临时 PATH 使用
   Node.js 22.22.2 与 pnpm 10.5.1 取得本地前端发布证据。
-- LangGraph 本地服务仍为 noop 认证，日志与诊断报告不能作为授权或审计替代品。
+- LangGraph 已使用第一方自定义 Auth，但日志与诊断报告仍不能作为授权或审计替代品。
 - 请求限流为单实例本地 Redis 固定窗口，非全局分布式速率控制；无令牌桶、自动
   封禁或跨实例配额共享，Redis 故障时 fail-open。
 - 管理员角色只增加用户列表和他人角色变更能力，不允许跨用户读取、写入或删除
@@ -279,7 +290,7 @@ Job 也已在 run `31959537002` 验证成功。
 - `README.md`：本地开发、配置、Docker 和验证命令。
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、问题清单、
   证据边界与发布判断。
-- `.trae/documents/roadmap.md`：8 个已完成 change-id 和 11 个未启动候选迭代。
+- `.trae/documents/roadmap.md`：9 个已完成 change-id 和 10 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
@@ -291,3 +302,5 @@ Job 也已在 run `31959537002` 验证成功。
 - `.trae/specs/restore-runtime-release-gates/`：已完成的运行时发布门禁规格；
   Hosted 四个 Job 已在 implementation SHA
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
+- `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地验收、等待目标 SHA
+  Hosted 证据的 Agent 第一方身份与租户边界规格。

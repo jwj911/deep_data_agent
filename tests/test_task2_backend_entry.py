@@ -11,10 +11,15 @@ from fastapi import HTTPException
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from data_agent.config.config import Config, ConfigurationError, config
+from data_agent.models.user import User, UserRole
 from data_agent.services.agent_service import (AgentInvocationError,
                                                AgentService)
 from data_agent.services.cache_service import CacheService
 from data_agent.tools.tool_manager import ToolManager
+
+
+def _actor(user_id: int = 1) -> User:
+    return User(id=user_id, role=UserRole.USER.value)
 
 
 def test_langgraph_config_exports_dedicated_agent_module() -> None:
@@ -142,7 +147,11 @@ def test_agent_service_propagates_configuration_error(monkeypatch) -> None:
     )
 
     with pytest.raises(ConfigurationError):
-        service.invoke("query", request_id="request-1")
+        service.invoke(
+            "query",
+            actor=_actor(),
+            request_id="request-1",
+        )
 
 
 def test_agent_service_wraps_upstream_error(monkeypatch) -> None:
@@ -153,7 +162,11 @@ def test_agent_service_wraps_upstream_error(monkeypatch) -> None:
     with pytest.raises(
         AgentInvocationError, match="Agent upstream request failed"
     ):
-        service.invoke("query", request_id="request-2")
+        service.invoke(
+            "query",
+            actor=_actor(),
+            request_id="request-2",
+        )
 
 
 def test_query_maps_configuration_error_to_stable_non_2xx(
@@ -167,7 +180,12 @@ def test_query_maps_configuration_error_to_stable_non_2xx(
     )
 
     with pytest.raises(HTTPException) as caught:
-        asyncio.run(server.query_agent(server.QueryRequest(query="query")))
+        asyncio.run(
+            server.query_agent(
+                server.QueryRequest(query="query"),
+                current_user=_actor(),
+            )
+        )
 
     assert caught.value.status_code == 503
     assert caught.value.detail["code"] == "agent_not_configured"
@@ -183,7 +201,12 @@ def test_query_maps_upstream_error_to_stable_non_2xx(monkeypatch) -> None:
     )
 
     with pytest.raises(HTTPException) as caught:
-        asyncio.run(server.query_agent(server.QueryRequest(query="query")))
+        asyncio.run(
+            server.query_agent(
+                server.QueryRequest(query="query"),
+                current_user=_actor(),
+            )
+        )
 
     assert caught.value.status_code == 502
     assert caught.value.detail["code"] == "agent_upstream_error"

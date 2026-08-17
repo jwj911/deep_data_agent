@@ -1,0 +1,27 @@
+# 验收清单
+
+- [x] 迭代基线记录分支、完整 HEAD、干净工作区、当前测试数和四个 Hosted Job，未覆盖并行用户改动。
+- [x] DEC-001/DEC-002 已记录：Chat UI 以 LangGraph threads 为主数据，身份来自 MySQL，入口采用当前版本自定义 Auth 且不双写历史。
+- [x] FastAPI 与 LangGraph 共用 JWT 签名、算法、过期和正整数 subject 验证语义，不存在第二套弱化解析。
+- [x] LangGraph 对缺失、格式错误、错误签名、过期、非法 subject 和已删除用户统一返回稳定 `403`，不泄露用户或 Token。
+- [x] LangGraph 每次请求读取数据库当前用户和角色，Token 签发后的角色变化立即影响权限。
+- [x] `langgraph.json` 加载受测试的 Auth 实例，镜像与 Compose 均包含并能导入该模块。
+- [x] LangGraph 授权具有全局默认拒绝；cron、store、assistant 写操作和未声明资源均被拒绝。
+- [x] thread/create_run 强制把 owner 改为当前 identity，调用方伪造 owner metadata 无效。
+- [x] thread 搜索、读取和历史只返回当前 owner；指定其他用户 thread 呈现资源不可见语义。
+- [x] 跨用户更新、删除、状态写入和继续运行均被拒绝，拒绝后 thread 与 run 状态不变。
+- [x] 已认证用户只能读取/搜索固定 Agent assistant，不能创建、更新或删除 assistant。
+- [x] FastAPI `/api/query` 要求 `agent.invoke_own`，匿名或无效 Token 在缓存、模型和工具前返回 `401`。
+- [x] AgentService 对无 actor、未知角色和权限旁路默认拒绝，路由与服务形成双层授权。
+- [x] Agent 缓存键包含主体、模型和工具策略边界；同查询跨用户隔离，同用户仍可命中，日志不含查询或主体原文。
+- [x] 前端 LangGraph Origin 与 assistant 只来自构建配置，不读取或写入 `apiUrl`/`assistantId` 查询状态或连接表单。
+- [x] 旧 `lg:chat:apiKey` 被删除且不再读取；源码与请求中不存在 X-Api-Key 或 LangGraph Key 输入。
+- [x] `/info`、thread 搜索和流式 run 仅向配置的 Agent Origin 发送当前 `sessionStorage` JWT 的 Bearer 头。
+- [x] 恶意 apiUrl、assistantId、混合协议、相似域名和重定向参数不能改变请求目标或接收认证材料。
+- [x] Chat UI 只写 LangGraph threads，不隐式创建 MySQL session/message；REST 会话 API 仍保持原有所有权且不宣称同步。
+- [x] 后端确定性测试覆盖 AuthN、默认拒绝、全部 thread/run 关键动作、assistant 边界、FastAPI 双层授权和租户缓存。
+- [x] 本地容器双用户冒烟验证 LangGraph 匿名 `403`、FastAPI Agent 匿名 `401`、各自 thread 搜索隔离、跨用户读/改/删/续跑拒绝及管理员不绕过。
+- [x] 容器测试只使用假配置和脱敏用户，不调用模型、搜索或业务查询；成功失败均清理容器、网络、卷和临时配置。
+- [x] Python 3.12 全量 pytest、isort、发布契约、Alembic 校验、Compose 解析和 `git diff --check` 全部通过。
+- [x] Node 22/pnpm 10.5.1 的 typecheck、零警告 lint、format:check、build 通过；生成物已清理且治理文档与实际证据一致。
+- [ ] 本轮提交已推送 `origin/main`；本地与远端 SHA 一致、工作区干净，目标 SHA 的 Backend、Frontend、Release Contracts、Container Smoke 全部成功。
