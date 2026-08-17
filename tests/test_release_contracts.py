@@ -17,6 +17,12 @@ EVENTS_MODULE_PATH = "data_agent/observability/events.py"
 LANGGRAPH_CONFIG_PATH = "langgraph.json"
 LANGGRAPH_AUTH_MODULE_PATH = "data_agent/security/langgraph_auth.py"
 FRONTEND_API_KEY_PATH = "agent_chatui/src/lib/api-key.ts"
+MANAGED_FILE_MODEL_PATH = "data_agent/models/managed_file.py"
+MANAGED_FILE_ROUTE_PATH = "data_agent/routes/managed_file.py"
+MANAGED_FILE_SERVICE_PATH = "data_agent/services/managed_file_service.py"
+DOCUMENT_TOOL_PATH = "data_agent/tools/document_analysis.py"
+FRONTEND_FILE_CLIENT_PATH = "agent_chatui/src/lib/managed-file-client.ts"
+FRONTEND_FILE_HOOK_PATH = "agent_chatui/src/hooks/use-file-upload.tsx"
 REQUIRED_SCAN_FILES = {
     NEXT_CONFIG_PATH,
     ENV_EXAMPLE_PATH,
@@ -29,6 +35,12 @@ REQUIRED_SCAN_FILES = {
     LANGGRAPH_CONFIG_PATH,
     LANGGRAPH_AUTH_MODULE_PATH,
     FRONTEND_API_KEY_PATH,
+    MANAGED_FILE_MODEL_PATH,
+    MANAGED_FILE_ROUTE_PATH,
+    MANAGED_FILE_SERVICE_PATH,
+    DOCUMENT_TOOL_PATH,
+    FRONTEND_FILE_CLIENT_PATH,
+    FRONTEND_FILE_HOOK_PATH,
 }
 
 
@@ -71,6 +83,16 @@ RATE_LIMIT_SESSION_MAX_REQUESTS=60
 RATE_LIMIT_SESSION_WINDOW_SECONDS=60
 RATE_LIMIT_DEFAULT_MAX_REQUESTS=120
 RATE_LIMIT_DEFAULT_WINDOW_SECONDS=60
+FILE_STORAGE_ROOT=var/managed_files
+FILE_UPLOAD_MAX_BYTES=5242880
+FILE_UPLOAD_BATCH_MAX_BYTES=10485760
+FILE_UPLOAD_REQUEST_MAX_BYTES=11534336
+FILE_UPLOAD_BATCH_MAX_COUNT=5
+FILE_USER_QUOTA_BYTES=104857600
+FILE_USER_MAX_COUNT=100
+FILE_RETENTION_HOURS=168
+FILE_ANALYSIS_MAX_CHARS=20000
+COMPOSE_FILE_STORAGE_ROOT=/data/managed-files
 """
 VALID_COMPOSE = """\
 x-bounded-logging: &bounded-logging
@@ -88,9 +110,14 @@ services:
     environment:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-mysql+pymysql://app:app@mysql:3306/app}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
+      FILE_STORAGE_ROOT: ${COMPOSE_FILE_STORAGE_ROOT:-/data/managed-files}
     logging: *bounded-logging
+    volumes:
+      - managed_file_data:/data/managed-files
   frontend:
     logging: *bounded-logging
+volumes:
+  managed_file_data:
 """
 VALID_DOCKERIGNORE = """\
 **
@@ -172,6 +199,41 @@ const LEGACY_API_KEY_STORAGE_KEY = "lg:chat:apiKey";
 window.localStorage.removeItem(LEGACY_API_KEY_STORAGE_KEY);
 headers.Authorization = `Bearer ${authToken}`;
 """
+VALID_MANAGED_FILE_MODEL = """\
+class ManagedFile:
+    __tablename__ = "managed_files"
+    user_id = file_id = storage_key = sha256 = expires_at = None
+"""
+VALID_MANAGED_FILE_ROUTE = """\
+Permission.FILE_READ_OWN
+Permission.FILE_WRITE_OWN
+Permission.FILE_DELETE_OWN
+global_managed_file_service
+"""
+VALID_MANAGED_FILE_SERVICE = """\
+FILE_UPLOAD_MAX_BYTES
+FILE_UPLOAD_BATCH_MAX_BYTES
+FILE_USER_QUOTA_BYTES
+with_for_update
+normalize_file_id
+"""
+VALID_DOCUMENT_TOOL = """\
+def analyze_document(file_id: str, config: RunnableConfig):
+    user_id = config["configurable"]["langgraph_auth_user_id"]
+    return global_managed_file_service.analyze_file(user_id, file_id)
+"""
+VALID_FRONTEND_FILE_CLIENT = """\
+const path = "api/files";
+const FILE_MAX_BYTES = 5242880;
+const FILE_BATCH_MAX_BYTES = 10485760;
+export function uploadManagedFiles() {}
+export function deleteManagedFile() {}
+"""
+VALID_FRONTEND_FILE_HOOK = """\
+uploadManagedFiles
+deleteManagedFile
+validateManagedFileSelection
+"""
 
 
 def _write(root: Path, relative_path: str, text: str) -> None:
@@ -208,6 +270,12 @@ def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, LANGGRAPH_CONFIG_PATH, VALID_LANGGRAPH_CONFIG)
     _write(root, LANGGRAPH_AUTH_MODULE_PATH, VALID_LANGGRAPH_AUTH)
     _write(root, FRONTEND_API_KEY_PATH, VALID_FRONTEND_API_KEY)
+    _write(root, MANAGED_FILE_MODEL_PATH, VALID_MANAGED_FILE_MODEL)
+    _write(root, MANAGED_FILE_ROUTE_PATH, VALID_MANAGED_FILE_ROUTE)
+    _write(root, MANAGED_FILE_SERVICE_PATH, VALID_MANAGED_FILE_SERVICE)
+    _write(root, DOCUMENT_TOOL_PATH, VALID_DOCUMENT_TOOL)
+    _write(root, FRONTEND_FILE_CLIENT_PATH, VALID_FRONTEND_FILE_CLIENT)
+    _write(root, FRONTEND_FILE_HOOK_PATH, VALID_FRONTEND_FILE_HOOK)
     _write(
         root,
         f"{MIGRATIONS_VERSIONS_PATH}/0001_initial.py",
@@ -834,6 +902,103 @@ def test_rate_limit_env_default_missing_key_is_reported(tmp_path):
         if item.rule == "RATE_LIMIT_ENV_DEFAULT"
     ]
     assert matching == [("RATE_LIMIT_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
+
+
+@pytest.mark.parametrize(
+    "variable",
+    sorted(contracts.FILE_INGESTION_DEFAULTS),
+)
+def test_file_ingestion_env_defaults_must_be_exact(tmp_path, variable):
+    scan_files = _create_minimal_repository(tmp_path)
+    expected = contracts.FILE_INGESTION_DEFAULTS[variable]
+    invalid_env = VALID_ENV_EXAMPLE.replace(
+        f"{variable}={expected}",
+        f"{variable}=invalid",
+    )
+    _write(tmp_path, ENV_EXAMPLE_PATH, invalid_env)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "FILE_INGESTION_ENV_DEFAULT"
+    ] == [("FILE_INGESTION_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
+
+
+def test_managed_file_compose_volume_is_required(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        COMPOSE_PATH,
+        VALID_COMPOSE.replace(
+            "      - managed_file_data:/data/managed-files\n",
+            "",
+        ),
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "MANAGED_FILE_COMPOSE_VOLUME"
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def analyze_document(file_path):\n    return open(file_path).read()\n",
+        "if os.path.exists(value):\n    pass\n",
+    ],
+)
+def test_arbitrary_path_document_tool_is_rejected(tmp_path, source):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(tmp_path, DOCUMENT_TOOL_PATH, source)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "ARBITRARY_FILE_PATH_TOOL"
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "reader.readAsDataURL(file);\n",
+        "const encoded = fileToBase64(file);\n",
+        "const block = fileToContentBlock(file);\n",
+    ],
+)
+def test_new_frontend_base64_upload_is_rejected(tmp_path, source):
+    scan_files = _create_minimal_repository(tmp_path)
+    path = "agent_chatui/src/unsafe-upload.ts"
+    _write(tmp_path, path, source)
+    scan_files.add(path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "LEGACY_BASE64_FILE_UPLOAD"
+        and item.path == path
+        for item in violations
+    )
+
+
+def test_remote_build_font_is_rejected(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    path = "agent_chatui/src/app/layout.tsx"
+    _write(tmp_path, path, 'import { Inter } from "next/font/google";\n')
+    scan_files.add(path)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "REMOTE_BUILD_FONT" and item.path == path
+        for item in violations
+    )
 
 
 def test_compose_log_retention_contract_is_required(tmp_path):

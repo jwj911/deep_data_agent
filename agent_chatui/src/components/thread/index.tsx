@@ -17,6 +17,7 @@ import { TooltipIconButton } from "./tooltip-icon-button";
 import {
   ArrowDown,
   LoaderCircle,
+  Paperclip,
   PanelRightOpen,
   PanelRightClose,
   SquarePen,
@@ -41,6 +42,8 @@ import { ArtifactContent, ArtifactTitle } from "./artifact";
 import { useArtifactContext, useArtifactOpen } from "./use-artifact";
 import { SessionControls } from "@/components/auth-session";
 import { createRunCorrelation } from "@/lib/request-id";
+import { MANAGED_FILE_ACCEPT } from "@/lib/managed-file-client";
+import { createManagedFileContentBlock } from "@/lib/managed-file-reference";
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -123,13 +126,14 @@ export function Thread() {
   const [input, setInput] = useState("");
   const {
     contentBlocks,
-    setContentBlocks,
     handleFileUpload,
     dropRef,
+    fileInputRef,
     removeBlock,
-    resetBlocks: _resetBlocks,
+    clearSubmittedFiles,
     dragOver,
     handlePaste,
+    uploading,
   } = useFileUpload();
   const [firstTokenReceived, setFirstTokenReceived] = useState(false);
   const isLargeScreen = useMediaQuery("(min-width: 1024px)");
@@ -192,7 +196,11 @@ export function Thread() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if ((input.trim().length === 0 && contentBlocks.length === 0) || isLoading)
+    if (
+      (input.trim().length === 0 && contentBlocks.length === 0) ||
+      isLoading ||
+      uploading
+    )
       return;
     setFirstTokenReceived(false);
 
@@ -201,7 +209,7 @@ export function Thread() {
       type: "human",
       content: [
         ...(input.trim().length > 0 ? [{ type: "text", text: input }] : []),
-        ...contentBlocks,
+        ...contentBlocks.map(createManagedFileContentBlock),
       ] as Message["content"],
     };
 
@@ -232,7 +240,7 @@ export function Thread() {
     );
 
     setInput("");
-    setContentBlocks([]);
+    clearSubmittedFiles();
   };
 
   const handleRegenerate = (
@@ -504,13 +512,27 @@ export function Thread() {
                           </div>
                         </div>
                         <input
+                          ref={fileInputRef}
                           id="file-input"
                           type="file"
                           onChange={handleFileUpload}
                           multiple
-                          accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                          accept={MANAGED_FILE_ACCEPT}
                           className="hidden"
                         />
+                        <TooltipIconButton
+                          type="button"
+                          tooltip="上传文件"
+                          variant="ghost"
+                          disabled={uploading || isLoading}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {uploading ? (
+                            <LoaderCircle className="size-4 animate-spin" />
+                          ) : (
+                            <Paperclip className="size-4" />
+                          )}
+                        </TooltipIconButton>
                         {stream.isLoading ? (
                           <Button
                             key="stop"
@@ -526,6 +548,7 @@ export function Thread() {
                             className="ml-auto shadow-md transition-all"
                             disabled={
                               isLoading ||
+                              uploading ||
                               (!input.trim() && contentBlocks.length === 0)
                             }
                           >

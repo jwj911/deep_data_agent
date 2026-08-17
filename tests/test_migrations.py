@@ -19,14 +19,15 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-# Imported for its side effect: registering the Session and Message tables on
-# the shared ``Base.metadata`` used as the migration/comparison target.
+# Imported for side effects: registering all business tables on shared
+# ``Base.metadata`` used as the migration/comparison target.
+import data_agent.models.managed_file  # noqa: F401
 import data_agent.models.session  # noqa: F401
 from data_agent.config import database
 from data_agent.config.config import config
 from data_agent.models.user import Base
 
-BUSINESS_TABLES = ("users", "sessions", "messages")
+BUSINESS_TABLES = ("users", "sessions", "messages", "managed_files")
 
 
 @pytest.fixture
@@ -95,6 +96,7 @@ def test_upgrade_head_builds_expected_schema(sqlite_url):
             "users",
             "sessions",
             "messages",
+            "managed_files",
             "alembic_version",
         } <= tables
 
@@ -133,6 +135,18 @@ def test_upgrade_head_builds_expected_schema(sqlite_url):
             "content",
             "created_at",
         }
+        assert _column_names(inspector, "managed_files") >= {
+            "id",
+            "file_id",
+            "user_id",
+            "original_name",
+            "media_type",
+            "size_bytes",
+            "sha256",
+            "storage_key",
+            "created_at",
+            "expires_at",
+        }
 
         users_unique = _unique_index_columns(inspector, "users")
         assert ("username",) in users_unique
@@ -140,12 +154,18 @@ def test_upgrade_head_builds_expected_schema(sqlite_url):
         assert ("session_id",) in _unique_index_columns(
             inspector, "sessions"
         )
+        assert ("file_id",) in _unique_index_columns(
+            inspector, "managed_files"
+        )
 
         assert (("user_id",), "users", ("id",)) in _foreign_keys(
             inspector, "sessions"
         )
         assert (("session_id",), "sessions", ("id",)) in _foreign_keys(
             inspector, "messages"
+        )
+        assert (("user_id",), "users", ("id",)) in _foreign_keys(
+            inspector, "managed_files"
         )
     finally:
         engine.dispose()
@@ -251,6 +271,42 @@ def test_role_migration_can_downgrade_without_losing_users(sqlite_url):
         command.downgrade(database._alembic_config(), "4e43e097f22b")
 
         assert "role" not in _column_names(inspect(engine), "users")
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT COUNT(*) FROM users")
+            ).scalar_one() == 1
+    finally:
+        engine.dispose()
+
+
+def test_managed_file_migration_downgrade_preserves_users(sqlite_url):
+    _upgrade_to_head()
+    engine = create_engine(sqlite_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id, username, email, hashed_password, role) "
+                    "VALUES (1, 'file-owner', 'owner@example.test', "
+                    "'hash', 'user')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO managed_files "
+                    "(file_id, user_id, original_name, media_type, "
+                    "size_bytes, sha256, storage_key, created_at, expires_at) "
+                    "VALUES ('00000000-0000-0000-0000-000000000001', 1, "
+                    "'sample.txt', 'text/plain', 1, "
+                    f"'{'a' * 64}', '1/sample.txt', "
+                    "'2026-01-01 00:00:00', '2026-01-02 00:00:00')"
+                )
+            )
+
+        command.downgrade(database._alembic_config(), "8f3c1b7a2d4e")
+
+        assert "managed_files" not in inspect(engine).get_table_names()
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT COUNT(*) FROM users")

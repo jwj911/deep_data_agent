@@ -2,7 +2,7 @@
 
 Deep Data Agent 是一个前后端分离的 AI 数据探索项目。后端同时提供
 FastAPI REST 服务和 LangGraph 图服务，前端使用 Next.js 静态导出，
-MySQL 用于用户、会话与消息持久化，Redis 用于可降级缓存。第一方注册、
+MySQL 用于用户、会话、消息与受管文件 metadata，Redis 用于可降级缓存。第一方注册、
 登录与角色由 FastAPI 提供；同一 JWT 同时保护 FastAPI Agent 入口与
 LangGraph thread/run 所有权。前端、FastAPI、LangGraph、Agent、
 工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊断链路。
@@ -127,7 +127,7 @@ Compose 会启动 `mysql`、`redis`、`fastapi`、`langgraph` 和 `frontend`，
 docker compose --env-file .env -f docker-config/docker-compose.yml down
 ```
 
-删除 MySQL 与 Redis 数据卷需显式执行：
+删除 MySQL、Redis 与受管文件数据卷需显式执行：
 
 ```powershell
 docker compose --env-file .env -f docker-config/docker-compose.yml down -v
@@ -167,6 +167,42 @@ Chat UI 以 LangGraph threads 作为对话列表、状态和运行历史的主�
 users/RBAC 是身份主数据。既有 MySQL sessions/messages REST API 保留原有所有权
 语义，但不与 LangGraph 双写，也不宣称两套历史同步。
 
+## 受管文件
+
+文件摄取采用 owner 绑定的受管存储，不接受服务器绝对/相对路径。浏览器先把文件
+上传到固定 FastAPI REST Origin，MySQL `managed_files` 保存 owner 与安全 metadata，
+FastAPI/LangGraph 共享卷保存原始字节；LangGraph thread 只保存随机 UUID
+`file_id` 引用，不保存 Data URL 或 Base64 正文。
+
+当前只允许严格 UTF-8 的 `.txt`、`.md`、`.csv`、`.json`。JPEG、PNG、GIF、WebP、
+PDF、Office、压缩包及其他二进制格式在专用解析器和资源预算完成前保持拒绝。
+CSV 中去除前导空白后以 `=`, `+`, `-`, `@` 开头的单元格会被整批拒绝；JSON 必须
+完整通过标准解析器。
+
+默认边界：
+
+- 每批和每条消息最多 5 个文件。
+- 单文件最大 5 MiB，批次最大 10 MiB。
+- 每用户最多 100 个文件、总计 100 MiB。
+- 默认保留 168 小时；列表、上传或分析时惰性清理当前用户的过期文件。
+- `analyze_document` 只接受 owner 绑定的 UUID `file_id`，模型不能传入路径；
+  管理员也不能读取其他用户文件。
+
+文件 API：
+
+- `POST /api/files`：multipart 批量上传。
+- `GET /api/files`：列出当前用户未过期文件。
+- `GET /api/files/{file_id}`：读取安全 metadata。
+- `GET /api/files/{file_id}/analysis`：读取有界文本分析。
+- `DELETE /api/files/{file_id}`：删除当前用户文件。
+
+相关配置包括 `FILE_STORAGE_ROOT`、`FILE_UPLOAD_MAX_BYTES`、
+`FILE_UPLOAD_BATCH_MAX_BYTES`、`FILE_UPLOAD_REQUEST_MAX_BYTES`、
+`FILE_UPLOAD_BATCH_MAX_COUNT`、`FILE_USER_QUOTA_BYTES`、
+`FILE_USER_MAX_COUNT`、`FILE_RETENTION_HOURS` 和
+`FILE_ANALYSIS_MAX_CHARS`。容器通过 `COMPOSE_FILE_STORAGE_ROOT` 使用共享卷；
+本地卷没有备份，不得据此扩大 `RR-001` 的数据恢复边界。
+
 后端认证由以下环境变量控制：
 
 - `JWT_SECRET_KEY`：签名密钥，至少 32 个字符；占位值或过短时视为未配置，
@@ -194,7 +230,7 @@ users/RBAC 是身份主数据。既有 MySQL sessions/messages REST API 保留�
 协议校验，不能替代后端授权。
 
 权限矩阵采用默认拒绝策略，并在 FastAPI 路由和服务层分别检查。两种角色都只能
-读写删除自己的会话；`admin` 额外拥有以下管理 API：
+读写删除自己的会话与受管文件；`admin` 额外拥有以下管理 API：
 
 - `GET /api/admin/users?offset=0&limit=50`：按用户 ID 稳定分页列出用户，
   `limit` 范围为 `1..100`。
@@ -219,7 +255,7 @@ UTC 结构化日志。用户身份只记录由服务端 JWT 密钥派生的 HMAC
 ## 请求限流
 
 FastAPI 层在请求 ID 绑定之后、业务处理之前，对认证端点、高成本 `/api/query`、
-其他会话端点和全局默认类别按身份维度做 Redis 固定窗口限流。四类配额相互独立、
+会话/文件端点和全局默认类别按身份维度做 Redis 固定窗口限流。四类配额相互独立、
 计数隔离：某一类超限不影响其他类别。
 
 身份维度按稳定标识计数：认证请求按 JWT `sub`（仅无副作用地校验签名与有效期，
@@ -304,7 +340,7 @@ ENABLE_CODE_EXECUTION=false
 
 后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph JWT Auth、
 thread/run owner 默认拒绝、assistant 只读边界、Agent 双层授权与租户缓存、
-LangGraph 导出、
+受管文件格式/配额/事务/owner/路径/符号链接/哈希/保留、LangGraph 导出、
 缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
 双用户会话隔离、RBAC 管理、管理员引导、角色迁移、时间字段兼容、请求 ID、
 结构化脱敏事件、诊断报告、发布镜像资产和容器冒烟辅助逻辑：
@@ -334,16 +370,15 @@ git diff --check
 git status --short
 ```
 
-`secure-agent-tenant-boundaries` 已取得 2026-08-17 本地证据：Python 3.12.9 下
-250 项测试通过，其中迁移定向测试 7 项；isort、发布契约、Compose 解析和差异
-检查通过。Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、
-`format:check` 通过；同一前端源码此前已完成 `build`，本次最终重试仅因本机无法
-访问 Google Fonts 而失败；目标 SHA 的 Hosted Frontend Job 已完成生产构建并成功。
-Docker Linux Engine 从当前源码重建镜像后，空库双用户 Agent 隔离、head 重启和
-已知旧基线升级三场景均通过。双用户场景覆盖匿名拒绝、伪造 owner、固定
-assistant、并发重复搜索、跨用户 history/state/copy/读改删/create_run、管理员
-不绕过及无 MySQL 双写。该过程只使用专用假配置和不可外连的模型地址，不发送业务
-查询、未调用模型或搜索外部服务；容器、网络、卷、临时配置及生成物均已清理。
+`isolate-file-ingestion` 已取得 2026-08-17 本地证据：Python 3.12.9 下 295 项
+测试通过，其中迁移定向测试 8 项；isort、发布契约、Compose 解析和差异检查通过。
+Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、`format:check` 和
+`build` 通过；构建不再访问 Google Fonts。Docker Linux Engine 从当前源码重建
+镜像后，空库双用户、head 重启和已知旧基线升级三场景均通过。双用户场景覆盖
+上传/列表/分析/删除、FastAPI/LangGraph 共享卷、跨用户与管理员拒绝、非法 JSON、
+超限文件以及原 Agent 租户边界。无凭据 Chromium mock 另验证附件预览和草稿删除。
+该过程只使用专用假配置与脱敏文本，不发送业务查询、未调用模型或搜索外部服务；
+容器、网络、卷、临时配置及生成物均已清理。
 
 前一 `restore-runtime-release-gates` implementation SHA
 `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
@@ -371,9 +406,9 @@ fail-closed 边界。
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
-  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 13 项
-  （1 P0 / 3 P1 / 8 P2 / 1 P3）；生产发布判断仍为 NO-GO。
-- `.trae/documents/roadmap.md`：9 个已完成 change-id 和 10 个未启动候选迭代。
+  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 11 项
+  （0 P0 / 3 P1 / 7 P2 / 1 P3）；生产发布判断仍为 NO-GO。
+- `.trae/documents/roadmap.md`：10 个已完成 change-id 和 9 个未启动候选迭代。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
@@ -383,3 +418,5 @@ fail-closed 边界。
   `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 上验证成功。
 - `.trae/specs/secure-agent-tenant-boundaries/`：已完成本地与 Hosted 验收的
   Agent 第一方身份、租户所有权和固定浏览器 Origin 规格。
+- `.trae/specs/isolate-file-ingestion/`：已完成本地验收、等待目标 SHA Hosted
+  证据的 owner 受管文件、格式/配额和无 Base64 摄取规格。

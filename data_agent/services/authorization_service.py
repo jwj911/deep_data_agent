@@ -15,6 +15,9 @@ class Permission(StrEnum):
     SESSION_WRITE_OWN = "session.write_own"
     SESSION_DELETE_OWN = "session.delete_own"
     AGENT_INVOKE_OWN = "agent.invoke_own"
+    FILE_READ_OWN = "file.read_own"
+    FILE_WRITE_OWN = "file.write_own"
+    FILE_DELETE_OWN = "file.delete_own"
     ADMIN_USERS_LIST = "admin.users_list"
     ADMIN_ROLES_WRITE = "admin.roles_write"
 
@@ -25,6 +28,9 @@ _SESSION_PERMISSIONS = frozenset(
         Permission.SESSION_WRITE_OWN,
         Permission.SESSION_DELETE_OWN,
         Permission.AGENT_INVOKE_OWN,
+        Permission.FILE_READ_OWN,
+        Permission.FILE_WRITE_OWN,
+        Permission.FILE_DELETE_OWN,
     }
 )
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {

@@ -6,8 +6,13 @@ import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { BranchSwitcher, CommandBar } from "./shared";
 import { MultimodalPreview } from "@/components/thread/MultimodalPreview";
+import { ManagedFilePreview } from "@/components/thread/ManagedFilePreview";
 import { isBase64ContentBlock } from "@/lib/multimodal-utils";
 import { createRunCorrelation } from "@/lib/request-id";
+import {
+  getManagedFileReferences,
+  withoutManagedFileReferences,
+} from "@/lib/managed-file-reference";
 
 function EditableContent({
   value,
@@ -48,7 +53,10 @@ export function HumanMessage({
 
   const [isEditing, setIsEditing] = useState(false);
   const [value, setValue] = useState("");
-  const contentString = getContentString(message.content);
+  const managedFiles = getManagedFileReferences(message.content);
+  const contentString = getContentString(
+    withoutManagedFileReferences(message.content),
+  );
 
   const handleSubmitEdit = () => {
     setIsEditing(false);
@@ -93,24 +101,32 @@ export function HumanMessage({
           />
         ) : (
           <div className="flex flex-col gap-2">
-            {/* Render images and files if no text */}
-            {Array.isArray(message.content) && message.content.length > 0 && (
+            {(managedFiles.length > 0 ||
+              (Array.isArray(message.content) &&
+                message.content.length > 0)) && (
               <div className="flex flex-wrap items-end justify-end gap-2">
-                {message.content.reduce<React.ReactNode[]>(
-                  (acc, block, idx) => {
-                    if (isBase64ContentBlock(block)) {
-                      acc.push(
-                        <MultimodalPreview
-                          key={idx}
-                          block={block}
-                          size="md"
-                        />,
-                      );
-                    }
-                    return acc;
-                  },
-                  [],
-                )}
+                {managedFiles.map((file) => (
+                  <ManagedFilePreview
+                    key={file.fileId}
+                    file={file}
+                  />
+                ))}
+                {Array.isArray(message.content) &&
+                  message.content.reduce<React.ReactNode[]>(
+                    (acc, block, idx) => {
+                      if (isBase64ContentBlock(block)) {
+                        acc.push(
+                          <MultimodalPreview
+                            key={idx}
+                            block={block}
+                            size="md"
+                          />,
+                        );
+                      }
+                      return acc;
+                    },
+                    [],
+                  )}
               </div>
             )}
             {/* Render text if present, otherwise fallback to file/image name */}

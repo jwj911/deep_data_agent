@@ -30,7 +30,7 @@ def _resolve_scope(path: str) -> tuple[str, int, int]:
             config.RATE_LIMIT_QUERY_MAX_REQUESTS,
             config.RATE_LIMIT_QUERY_WINDOW_SECONDS,
         )
-    if path.startswith("/api/sessions"):
+    if path.startswith("/api/sessions") or path.startswith("/api/files"):
         return (
             "session",
             config.RATE_LIMIT_SESSION_MAX_REQUESTS,

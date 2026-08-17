@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
 from data_agent.config.config import config
+from data_agent.models.managed_file import ManagedFile  # noqa: F401
 from data_agent.models.session import Message, Session
 from data_agent.models.user import Base
 

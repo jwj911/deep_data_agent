@@ -19,9 +19,9 @@ Notes
 from alembic import context
 from sqlalchemy import create_engine
 
-# ``data_agent.models.session`` is imported for its side effects only:
-# importing it registers the Session and Message tables on the shared
-# ``Base.metadata`` used as ``target_metadata`` below.
+# Model modules are imported for their side effects so every table is
+# registered on the shared ``Base.metadata`` used below.
+import data_agent.models.managed_file  # noqa: F401
 import data_agent.models.session  # noqa: F401
 from data_agent.config.database import _database_url
 from data_agent.models.user import Base

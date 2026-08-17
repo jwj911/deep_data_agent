@@ -124,6 +124,14 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_file_routes_share_the_bounded_session_scope() -> None:
+    assert rate_limit_middleware._resolve_scope("/api/files") == (
+        "session",
+        config.RATE_LIMIT_SESSION_MAX_REQUESTS,
+        config.RATE_LIMIT_SESSION_WINDOW_SECONDS,
+    )
+
+
 @contextmanager
 def _authenticated_actor(user_id: int = 1):
     previous_overrides = agent_server.app.dependency_overrides.copy()

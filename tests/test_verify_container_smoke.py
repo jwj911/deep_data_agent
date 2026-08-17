@@ -223,6 +223,7 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
     }
     tokens = {"token-a": 101, "token-b": 202}
     thread_ids = {101: "thread-a", 202: "thread-b"}
+    file_ids = {"token-a": "file-a", "token-b": "file-b"}
 
     def fake_json_request(
         method,
@@ -242,6 +243,16 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
             return 401, {"detail": "invalid"}
         if url.endswith("/threads/search") and token is None:
             return 403, {"detail": "invalid"}
+        if url.endswith("/api/files"):
+            return 200, [{"file_id": file_ids[token]}]
+        if "/api/files/file-a" in url and token == "token-b":
+            return 404, {"detail": "not found"}
+        if url.endswith("/api/files/file-a/analysis"):
+            return 200, {"content": "managed smoke a"}
+        if url.endswith("/api/files/file-b/analysis"):
+            return 200, {"content": "managed smoke b"}
+        if url.endswith("/api/files/file-a") and method == "DELETE":
+            return 204, None
         if url.endswith("/assistants/search"):
             if body["graph_id"] == "forged":
                 return 404, {"detail": "not found"}
@@ -287,10 +298,32 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
         mysql_calls.append((sql, operation))
         if operation == "tenant MySQL session count":
             return "0\n"
+        if operation == "tenant managed file count":
+            return "1\n"
         return ""
 
+    multipart_calls = []
+
+    def fake_multipart(url, *, token, filename, content, content_type):
+        multipart_calls.append(
+            (url, token, filename, len(content), content_type)
+        )
+        if filename == "invalid.json":
+            return 400, {"detail": "invalid"}
+        if filename == "oversized.txt":
+            return 413, {"detail": "too large"}
+        return 201, [{"file_id": file_ids[token]}]
+
+    tool_calls = []
+
     monkeypatch.setattr(smoke, "_json_request", fake_json_request)
+    monkeypatch.setattr(smoke, "_multipart_file_request", fake_multipart)
     monkeypatch.setattr(smoke, "_mysql", fake_mysql)
+    monkeypatch.setattr(
+        smoke,
+        "_verify_langgraph_managed_file",
+        lambda context, **kwargs: tool_calls.append(kwargs),
+    )
 
     smoke.verify_tenant_isolation(
         _context(tmp_path),
@@ -333,6 +366,16 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
     assert any(
         operation == "tenant MySQL session count"
         for _, operation in mysql_calls
+    )
+    assert any(
+        operation == "tenant managed file count"
+        for _, operation in mysql_calls
+    )
+    assert len(tool_calls) == 2
+    assert any(
+        filename == "oversized.txt"
+        and size == smoke.MANAGED_FILE_MAX_BYTES + 1
+        for _, _, filename, size, _ in multipart_calls
     )
 
 

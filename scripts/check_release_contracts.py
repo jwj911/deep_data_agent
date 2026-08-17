@@ -26,6 +26,14 @@ MIGRATIONS_VERSIONS_PATH = "migrations/versions"
 USER_MODEL_PATH = "data_agent/models/user.py"
 AUDIT_MODULE_PATH = "data_agent/observability/audit.py"
 EVENTS_MODULE_PATH = "data_agent/observability/events.py"
+MANAGED_FILE_MODEL_PATH = "data_agent/models/managed_file.py"
+MANAGED_FILE_ROUTE_PATH = "data_agent/routes/managed_file.py"
+MANAGED_FILE_SERVICE_PATH = "data_agent/services/managed_file_service.py"
+DOCUMENT_TOOL_PATH = "data_agent/tools/document_analysis.py"
+FRONTEND_FILE_CLIENT_PATH = (
+    "agent_chatui/src/lib/managed-file-client.ts"
+)
+FRONTEND_FILE_HOOK_PATH = "agent_chatui/src/hooks/use-file-upload.tsx"
 
 REQUIRED_STRUCTURE_FILES = {
     NEXT_CONFIG_PATH,
@@ -39,6 +47,12 @@ REQUIRED_STRUCTURE_FILES = {
     USER_MODEL_PATH,
     AUDIT_MODULE_PATH,
     EVENTS_MODULE_PATH,
+    MANAGED_FILE_MODEL_PATH,
+    MANAGED_FILE_ROUTE_PATH,
+    MANAGED_FILE_SERVICE_PATH,
+    DOCUMENT_TOOL_PATH,
+    FRONTEND_FILE_CLIENT_PATH,
+    FRONTEND_FILE_HOOK_PATH,
 }
 DOCKERIGNORE_REQUIRED_ALLOWS = (
     "requirements.txt",
@@ -100,6 +114,18 @@ RATE_LIMIT_DEFAULTS = {
     "RATE_LIMIT_DEFAULT_MAX_REQUESTS": "120",
     "RATE_LIMIT_DEFAULT_WINDOW_SECONDS": "60",
 }
+FILE_INGESTION_DEFAULTS = {
+    "FILE_STORAGE_ROOT": "var/managed_files",
+    "FILE_UPLOAD_MAX_BYTES": "5242880",
+    "FILE_UPLOAD_BATCH_MAX_BYTES": "10485760",
+    "FILE_UPLOAD_REQUEST_MAX_BYTES": "11534336",
+    "FILE_UPLOAD_BATCH_MAX_COUNT": "5",
+    "FILE_USER_QUOTA_BYTES": "104857600",
+    "FILE_USER_MAX_COUNT": "100",
+    "FILE_RETENTION_HOURS": "168",
+    "FILE_ANALYSIS_MAX_CHARS": "20000",
+    "COMPOSE_FILE_STORAGE_ROOT": "/data/managed-files",
+}
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
@@ -113,6 +139,17 @@ LEGACY_AGENT_KEY_PATTERN = re.compile(
 LEGACY_AGENT_KEY_READ_PATTERN = re.compile(
     r"(?:localStorage\.)?(?:getItem|setItem)\s*\([^)]*"
     r"(?:lg:chat:apiKey|LEGACY_API_KEY_STORAGE_KEY)"
+)
+LEGACY_FILE_UPLOAD_PATTERN = re.compile(
+    r"\b(?:fileToBase64|fileToContentBlock)\b|"
+    r"\breadAsDataURL\s*\("
+)
+REMOTE_BUILD_FONT_PATTERN = re.compile(
+    r"""from\s+["']next/font/google["']"""
+)
+ARBITRARY_FILE_PATH_PATTERN = re.compile(
+    r"\bfile_path\b|os\.path\.(?:exists|getsize)\s*\(|"
+    r"(?<!os\.)\bopen\s*\("
 )
 COPY_INSTRUCTION_PATTERN = re.compile(r"^\s*COPY\s+(.+)$", re.IGNORECASE)
 FROM_INSTRUCTION_PATTERN = re.compile(r"^\s*FROM(?:\s|$)", re.IGNORECASE)
@@ -648,6 +685,92 @@ def _check_agent_tenant_contracts(
         )
 
 
+def _check_file_ingestion_contracts(
+    structure_texts: dict[str, str],
+    scan_texts: dict[str, str],
+    violations: list[Violation],
+) -> None:
+    required_markers = {
+        MANAGED_FILE_MODEL_PATH: (
+            '__tablename__ = "managed_files"',
+            "user_id",
+            "file_id",
+            "storage_key",
+            "sha256",
+            "expires_at",
+        ),
+        MANAGED_FILE_ROUTE_PATH: (
+            "Permission.FILE_READ_OWN",
+            "Permission.FILE_WRITE_OWN",
+            "Permission.FILE_DELETE_OWN",
+            "global_managed_file_service",
+        ),
+        MANAGED_FILE_SERVICE_PATH: (
+            "FILE_UPLOAD_MAX_BYTES",
+            "FILE_UPLOAD_BATCH_MAX_BYTES",
+            "FILE_USER_QUOTA_BYTES",
+            "with_for_update",
+            "normalize_file_id",
+        ),
+        DOCUMENT_TOOL_PATH: (
+            "file_id",
+            "RunnableConfig",
+            "langgraph_auth_user_id",
+            "global_managed_file_service",
+        ),
+        FRONTEND_FILE_CLIENT_PATH: (
+            "api/files",
+            "uploadManagedFiles",
+            "deleteManagedFile",
+            "FILE_MAX_BYTES",
+            "FILE_BATCH_MAX_BYTES",
+        ),
+        FRONTEND_FILE_HOOK_PATH: (
+            "uploadManagedFiles",
+            "deleteManagedFile",
+            "validateManagedFileSelection",
+        ),
+    }
+    for path, markers in required_markers.items():
+        text = structure_texts.get(path)
+        if text is not None and any(marker not in text for marker in markers):
+            violations.append(
+                Violation("MANAGED_FILE_BOUNDARY", path, 1)
+            )
+
+    tool = structure_texts.get(DOCUMENT_TOOL_PATH)
+    if tool is not None:
+        for line in _line_matches(tool, ARBITRARY_FILE_PATH_PATTERN):
+            violations.append(
+                Violation("ARBITRARY_FILE_PATH_TOOL", DOCUMENT_TOOL_PATH, line)
+            )
+
+    for path, text in scan_texts.items():
+        if not path.startswith("agent_chatui/src/"):
+            continue
+        for line in _line_matches(text, LEGACY_FILE_UPLOAD_PATTERN):
+            violations.append(
+                Violation("LEGACY_BASE64_FILE_UPLOAD", path, line)
+            )
+        for line in _line_matches(text, REMOTE_BUILD_FONT_PATTERN):
+            violations.append(
+                Violation("REMOTE_BUILD_FONT", path, line)
+            )
+
+    compose = structure_texts.get(COMPOSE_PATH)
+    compose_markers = (
+        "COMPOSE_FILE_STORAGE_ROOT",
+        "managed_file_data:/data/managed-files",
+        "managed_file_data:",
+    )
+    if compose is not None and any(
+        marker not in compose for marker in compose_markers
+    ):
+        violations.append(
+            Violation("MANAGED_FILE_COMPOSE_VOLUME", COMPOSE_PATH, 1)
+        )
+
+
 def _check_env_example(
     text: str,
     violations: list[Violation],
@@ -695,6 +818,18 @@ def _check_env_example(
             violations.append(
                 Violation(
                     "RATE_LIMIT_ENV_DEFAULT",
+                    ENV_EXAMPLE_PATH,
+                    line,
+                )
+            )
+
+    for name, expected in FILE_INGESTION_DEFAULTS.items():
+        values = assignments.get(name, [])
+        if len(values) != 1 or values[0][0] != expected:
+            line = values[0][1] if values else 1
+            violations.append(
+                Violation(
+                    "FILE_INGESTION_ENV_DEFAULT",
                     ENV_EXAMPLE_PATH,
                     line,
                 )
@@ -968,6 +1103,11 @@ def check_repository(
         _check_dockerfile(dockerfile, violations)
 
     _check_agent_tenant_contracts(
+        structure_texts,
+        scan_texts,
+        violations,
+    )
+    _check_file_ingestion_contracts(
         structure_texts,
         scan_texts,
         violations,

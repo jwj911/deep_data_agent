@@ -12,7 +12,9 @@ from data_agent.observability.context import get_or_create_request_id
 from data_agent.observability.middleware import (REQUEST_ID_HEADER,
                                                  ObservabilityMiddleware)
 from data_agent.observability.rate_limit_middleware import RateLimitMiddleware
-from data_agent.routes import admin, auth, session
+from data_agent.routes import admin, auth, managed_file, session
+from data_agent.security.upload_limit_middleware import \
+    FileUploadBodyLimitMiddleware
 from data_agent.services.agent_service import (AgentInvocationError,
                                                global_agent_service)
 from data_agent.services.authorization_service import (Permission,
@@ -41,8 +43,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
     expose_headers=[REQUEST_ID_HEADER],
 )
-# 中间件“后 add = 更外层”。此处按 CORS、RateLimit、Observability 顺序添加，
-# 使执行顺序为 Observability(最外) -> RateLimit -> CORS(最内，最靠近路由)。
+app.add_middleware(FileUploadBodyLimitMiddleware)
+# 中间件“后 add = 更外层”。此处按 CORS、FileLimit、RateLimit、Observability 添加，
+# 使执行顺序为 Observability -> RateLimit -> FileLimit -> CORS -> route。
 # Observability 最外层先绑定请求 ID，限流的 429 分支才能取到 request_id。
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ObservabilityMiddleware)
@@ -50,6 +53,11 @@ app.add_middleware(ObservabilityMiddleware)
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(session.router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(
+    managed_file.router,
+    prefix="/api/files",
+    tags=["files"],
+)
 
 
 class QueryRequest(BaseModel):

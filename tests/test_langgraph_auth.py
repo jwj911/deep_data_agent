@@ -83,6 +83,9 @@ def test_authenticate_returns_stable_identity_and_current_permissions(
     assert authenticated["is_authenticated"] is True
     assert authenticated["permissions"] == [
         "agent.invoke_own",
+        "file.delete_own",
+        "file.read_own",
+        "file.write_own",
         "session.delete_own",
         "session.read_own",
         "session.write_own",

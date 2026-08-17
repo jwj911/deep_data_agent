@@ -1,0 +1,27 @@
+# 验收清单
+
+- [x] 基线记录分支、完整 HEAD/origin、干净工作区、250 项测试和目标 SHA 的 Hosted 四 Job，未覆盖并行改动。
+- [x] DEC-004 已记录：文件采用 MySQL owner metadata + 受管共享卷 + opaque UUID，不再接受服务器路径或新 Base64 上传。
+- [x] `managed_files` 模型与线性 migration 包含 owner、UUID、媒体类型、大小、SHA-256、内部 storage key、创建/过期时间及约束。
+- [x] 空库、当前 head、已知 legacy 升级和 downgrade 保持 schema/模型一致、唯一 head 与既有 canary 数据。
+- [x] 文件配置对根目录、单文件/批次/用户配额、保留期和分析字符预算使用正整数及关系校验，示例不含真实路径或凭据。
+- [x] 上传请求体在 multipart 解析前有界；缺失 Content-Length 仍按分块计数，非法/超限 Content-Length 及分块超限稳定拒绝。
+- [x] 服务端只允许严格 UTF-8 TXT/Markdown/CSV/JSON，联合验证文件名、扩展名、声明 MIME 和内容结构。
+- [x] 无效 UTF-8、NUL、伪造 MIME、双扩展、非法 JSON、CSV 公式前缀和不支持格式全部 fail-closed。
+- [x] 每批 5 个、单文件 5 MiB、批次 10 MiB、每用户 100 个/100 MiB 默认限制由服务端强制，前端只做同值预检。
+- [x] 批量上传采用用户级串行配额与整批事务；重复、配额、数据库或文件系统失败不留下部分 metadata、最终文件或临时文件。
+- [x] `file.read_own`、`file.write_own`、`file.delete_own` 在路由和服务层双重执行，未知角色默认拒绝。
+- [x] 用户只能列表、读取、分析和删除自己的文件；跨用户和管理员访问均为不可枚举 `404`，拒绝后资源不变。
+- [x] API 响应不含 storage key、绝对路径、SHA-256 或内容（分析端点除有界 owner 内容），错误不回显文件名或底层异常。
+- [x] `analyze_document` 模型 schema 只暴露规范 UUID `file_id`，不暴露 config、主体、路径、storage key 或 Token。
+- [x] 工具只使用隐藏 `langgraph_auth_user_id`，FastAPI Agent 直接入口注入服务端 actor；客户端伪造主体不能改变 owner。
+- [x] 工具读取前验证 owner、到期、受管根、普通文件、非符号链接、大小和 SHA-256；任一漂移稳定拒绝。
+- [x] 工具输出按字符预算截断且日志不含文件名、内容、路径、file ID、哈希、主体原文或异常原文。
+- [x] 前端选择、拖放、粘贴复用同一受管上传函数，具有附件图标、上传中、失败和删除未提交附件状态。
+- [x] 新 LangGraph message 只包含小型 `file_id` 引用，不含 Data URL/Base64；JPEG/PNG/GIF/WebP/PDF 新上传被移除。
+- [x] 历史 Base64 block 仅兼容只读显示，源码不存在 `FileReader.readAsDataURL` 或把新文件正文写入 thread 的路径。
+- [x] 默认 7 天保留期与显式删除可回收 metadata/字节；过期资源不可分析，惰性清理不跨 owner。
+- [x] 双用户容器冒烟覆盖上传/列表/分析/删除、跨用户/管理员拒绝、恶意格式/超限拒绝、共享卷和无 Base64 thread。
+- [x] 容器测试只使用脱敏文本与假配置，不调用模型、搜索或生产数据；成功失败均清理容器、网络、卷、临时配置和文件。
+- [x] Python 3.12 全量 pytest、isort、发布契约、Alembic、Compose、`git diff --check` 及 Node 22/pnpm 10.5.1 四项前端门禁通过。
+- [ ] 提交已推送 `origin/main`，本地/远端 SHA 一致、工作区干净，implementation 与最终 HEAD 的 Hosted 四 Job 全部成功。

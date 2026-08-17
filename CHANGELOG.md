@@ -5,6 +5,42 @@
 
 ## [Unreleased]
 
+### 隔离文件摄取（2026-08-17，本地完成，Hosted 待补录）
+
+- `isolate-file-ingestion` 已完成本地验收，成为第 10 个已完成 change-id；Roadmap
+  余下 9 个未启动候选。`DEC-004` 已确定 MySQL owner metadata + 受管共享卷 +
+  opaque UUID，LangGraph thread 只保存引用。
+- **BREAKING**：`analyze_document` 不再接受服务器路径，只接受 owner 绑定 UUID
+  `file_id`；新上传只支持严格 UTF-8 TXT/Markdown/CSV/JSON。JPEG、PNG、GIF、
+  WebP、PDF 和其他二进制 Base64 新上传已移除，历史 block 仅兼容只读显示。
+- 新增 `managed_files` 模型和线性 migration `b6f4e8c2a9d1`，记录 owner、随机
+  UUID、规范媒体类型、大小、SHA-256、内部 storage key、创建和过期时间。
+- 新增 `file.read_own`、`file.write_own`、`file.delete_own` 与认证文件 API；
+  路由/服务双层 owner 过滤，管理员不绕过，跨用户统一资源不可见。
+- 上传在 multipart 解析前限制 11 MiB 请求体，并强制每批 5 个、单文件 5 MiB、
+  批次 10 MiB、每用户 100 个/100 MiB、默认 168 小时保留。文件名、扩展名、
+  MIME、UTF-8/NUL、JSON、CSV 公式、重复和整批事务均 fail-closed。
+- `analyze_document` 只暴露 `file_id`；主体从隐藏
+  `langgraph_auth_user_id` 恢复。打开文件前再次验证 owner、受管根、普通文件、
+  非符号链接、大小和 SHA-256，错误/事件不输出文件名、内容、路径、ID 或哈希。
+- 前端选择、拖放、粘贴共用同一受管上传函数，新增附件图标、上传中、metadata
+  预览和草稿删除；新 thread payload 不含 Data URL/Base64。
+- 发布契约新增文件配置、模型/路由/服务/工具/前端、共享卷、任意路径、Base64
+  上传和远程构建字体门禁。Next.js 构建改用系统 sans 字体，不再依赖 Google Fonts。
+- Python 3.12.9 下 `python -B -m pytest -q` 共 **295 项通过**，迁移定向测试
+  **8 项通过**；isort、发布契约、Alembic 唯一 head、Compose 和差异检查通过。
+- Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、`format:check`、
+  `build` 全部通过；无凭据 Chromium mock 验证附件预览、删除 API 与草稿移除。
+- Docker Linux Engine 当前源码五服务的空库双用户、head 重启和 legacy 升级均
+  通过；文件场景覆盖上传/列表/分析/删除、FastAPI/LangGraph 共享卷、跨用户与
+  管理员拒绝、非法 JSON、超限和资源不变。全程未调用模型、搜索或生产数据，
+  容器、网络、卷、临时配置和生成物已清理。
+- 历史 18 项新增关闭 `AUD-002`、`AUD-005`，当前开放
+  **11 项：0 P0 / 3 P1 / 7 P2 / 1 P3**。生产仍为 **NO-GO**；`AUD-004`、
+  `AUD-007`、`AUD-008` 三个 P1 及 `RR-001` 等边界未扩大。
+- 本 change-id 的 Hosted Backend、Frontend、Release Contracts、Container Smoke
+  必须绑定首次实现提交 SHA；推送前不复用前一 SHA 的成功记录。
+
 ### 保护 Agent 租户边界（2026-08-17，本地与 Hosted 完成）
 
 - `secure-agent-tenant-boundaries` 已完成本地验收，成为第 9 个已完成 change-id；

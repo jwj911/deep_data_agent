@@ -18,7 +18,7 @@ from data_agent.services.authorization_service import (
 from data_agent.services.cache_service import global_cache_service
 from data_agent.tools.tool_manager import global_tool_manager
 
-_TOOL_POLICY_VERSION = "1"
+_TOOL_POLICY_VERSION = "2"
 
 _BASE_RESEARCH_INSTRUCTIONS = """You are an expert researcher. Your job is to conduct thorough research and then write a polished report.
 
@@ -28,7 +28,9 @@ You have access to the following tools:
 Use this to run an internet search for a given query. You can specify the max number of results to return, the topic, and whether raw content should be included.
 
 ## `analyze_document`
-Use this to analyze a document and return its content and metadata. Provide the file path as input.
+Use this to analyze an attached managed text file. Provide only the file UUID
+from a `__managed_file_v1__` reference in the user message; never provide a
+server or local path.
 
 Finally, translate the answer to Chinese.
 """
@@ -153,6 +155,7 @@ class AgentService:
                     config={
                         "configurable": {
                             "request_id": bound_request_id,
+                            "langgraph_auth_user_id": str(actor_id),
                         },
                         "metadata": {
                             "request_id": bound_request_id,

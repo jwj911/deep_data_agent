@@ -124,6 +124,59 @@ class Config:
             "REDIS_SOCKET_TIMEOUT_SECONDS", 1.0
         )
 
+        self.FILE_STORAGE_ROOT = os.environ.get(
+            "FILE_STORAGE_ROOT", "var/managed_files"
+        ).strip()
+        if not self.FILE_STORAGE_ROOT:
+            raise ConfigurationError("FILE_STORAGE_ROOT cannot be empty")
+        self.FILE_UPLOAD_MAX_BYTES = _env_positive_int(
+            "FILE_UPLOAD_MAX_BYTES", 5 * 1024 * 1024
+        )
+        self.FILE_UPLOAD_BATCH_MAX_BYTES = _env_positive_int(
+            "FILE_UPLOAD_BATCH_MAX_BYTES", 10 * 1024 * 1024
+        )
+        self.FILE_UPLOAD_REQUEST_MAX_BYTES = _env_positive_int(
+            "FILE_UPLOAD_REQUEST_MAX_BYTES", 11 * 1024 * 1024
+        )
+        self.FILE_UPLOAD_BATCH_MAX_COUNT = _env_positive_int(
+            "FILE_UPLOAD_BATCH_MAX_COUNT", 5
+        )
+        self.FILE_USER_QUOTA_BYTES = _env_positive_int(
+            "FILE_USER_QUOTA_BYTES", 100 * 1024 * 1024
+        )
+        self.FILE_USER_MAX_COUNT = _env_positive_int(
+            "FILE_USER_MAX_COUNT", 100
+        )
+        self.FILE_RETENTION_HOURS = _env_positive_int(
+            "FILE_RETENTION_HOURS", 7 * 24
+        )
+        self.FILE_ANALYSIS_MAX_CHARS = _env_positive_int(
+            "FILE_ANALYSIS_MAX_CHARS", 20000
+        )
+        if self.FILE_UPLOAD_BATCH_MAX_BYTES < self.FILE_UPLOAD_MAX_BYTES:
+            raise ConfigurationError(
+                "FILE_UPLOAD_BATCH_MAX_BYTES must be >= "
+                "FILE_UPLOAD_MAX_BYTES"
+            )
+        if (
+            self.FILE_UPLOAD_REQUEST_MAX_BYTES
+            < self.FILE_UPLOAD_BATCH_MAX_BYTES
+        ):
+            raise ConfigurationError(
+                "FILE_UPLOAD_REQUEST_MAX_BYTES must be >= "
+                "FILE_UPLOAD_BATCH_MAX_BYTES"
+            )
+        if self.FILE_USER_QUOTA_BYTES < self.FILE_UPLOAD_BATCH_MAX_BYTES:
+            raise ConfigurationError(
+                "FILE_USER_QUOTA_BYTES must be >= "
+                "FILE_UPLOAD_BATCH_MAX_BYTES"
+            )
+        if self.FILE_USER_MAX_COUNT < self.FILE_UPLOAD_BATCH_MAX_COUNT:
+            raise ConfigurationError(
+                "FILE_USER_MAX_COUNT must be >= "
+                "FILE_UPLOAD_BATCH_MAX_COUNT"
+            )
+
         self.ENABLE_CODE_EXECUTION = _env_bool(
             "ENABLE_CODE_EXECUTION", default=False
         )

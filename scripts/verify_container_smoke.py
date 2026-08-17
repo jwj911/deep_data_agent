@@ -162,6 +162,7 @@ TENANT_USERS = (
     ("container-tenant-b", "container-tenant-b@example.com"),
 )
 TENANT_PASSWORD = "container-tenant-test-password"
+MANAGED_FILE_MAX_BYTES = 5 * 1024 * 1024
 
 
 class SmokeError(RuntimeError):
@@ -429,6 +430,100 @@ def _json_request(
         raise SmokeError("tenant HTTP response is invalid") from exc
 
 
+def _multipart_file_request(
+    url: str,
+    *,
+    token: str,
+    filename: str,
+    content: bytes,
+    content_type: str,
+) -> tuple[int, object]:
+    boundary = "deepdata-container-smoke"
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="files"; '
+        f'filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("ascii")
+    body += content
+    body += f"\r\n--{boundary}--\r\n".encode("ascii")
+    http_request = request.Request(
+        url,
+        data=body,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(
+            http_request,
+            timeout=HTTP_TIMEOUT_SECONDS,
+        ) as response:
+            status = response.status
+            response_body = response.read(65536)
+    except error.HTTPError as exc:
+        status = exc.code
+        response_body = exc.read(65536)
+    except (error.URLError, OSError, TimeoutError) as exc:
+        raise SmokeError("managed file upload did not complete") from exc
+    if not response_body:
+        return status, None
+    try:
+        return status, json.loads(response_body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SmokeError("managed file response is invalid") from exc
+
+
+def _managed_file_id(payload: object) -> str:
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+        or not isinstance(payload[0].get("file_id"), str)
+        or "storage_key" in payload[0]
+        or "sha256" in payload[0]
+        or "content" in payload[0]
+    ):
+        raise SmokeError("managed file upload response is invalid")
+    return payload[0]["file_id"]
+
+
+def _verify_langgraph_managed_file(
+    context: ComposeContext,
+    *,
+    file_id: str,
+    user_id: int,
+    expected_content: str | None,
+) -> None:
+    code = (
+        "import sys;"
+        "from data_agent.tools.document_analysis import analyze_document;"
+        "result=analyze_document("
+        "sys.argv[1],"
+        "{'configurable': {'langgraph_auth_user_id': sys.argv[2]}}"
+        ");"
+        "expected=sys.argv[3];"
+        "assert (result.get('content') if expected else result.get('error'))"
+        " == (expected or 'managed_file_not_found')"
+    )
+    _compose_output(
+        context,
+        "exec",
+        "-T",
+        "langgraph",
+        "python",
+        "-c",
+        code,
+        file_id,
+        str(user_id),
+        expected_content or "",
+        operation="LangGraph managed file tool verification",
+    )
+
+
 def _service_base(url: str, suffix: str) -> str:
     normalized = url.rstrip("/")
     if not normalized.endswith(suffix):
@@ -531,6 +626,100 @@ def verify_tenant_isolation(
     if status != 403:
         raise SmokeError("anonymous LangGraph request was not rejected")
 
+    file_contents = ("managed smoke a", "managed smoke b")
+    managed_files: list[str] = []
+    for index, (user_id, token) in enumerate(users):
+        status, payload = _multipart_file_request(
+            f"{fastapi_base}/api/files",
+            token=token,
+            filename=f"tenant-{index + 1}.txt",
+            content=file_contents[index].encode("utf-8"),
+            content_type="text/plain",
+        )
+        if status != 201:
+            raise SmokeError("managed file upload failed")
+        managed_files.append(_managed_file_id(payload))
+
+        status, listed = _json_request(
+            "GET",
+            f"{fastapi_base}/api/files",
+            token=token,
+        )
+        if (
+            status != 200
+            or not isinstance(listed, list)
+            or any(not isinstance(item, dict) for item in listed)
+            or {item.get("file_id") for item in listed} != {
+                managed_files[index]
+            }
+        ):
+            raise SmokeError("managed file list crossed owners")
+
+        status, analysis = _json_request(
+            "GET",
+            (
+                f"{fastapi_base}/api/files/"
+                f"{managed_files[index]}/analysis"
+            ),
+            token=token,
+        )
+        if (
+            status != 200
+            or not isinstance(analysis, dict)
+            or analysis.get("content") != file_contents[index]
+            or "storage_key" in analysis
+            or "sha256" in analysis
+        ):
+            raise SmokeError("managed file analysis failed")
+
+    file_a = managed_files[0]
+    token_a = users[0][1]
+    token_b = users[1][1]
+    for method, suffix in (
+        ("GET", ""),
+        ("GET", "/analysis"),
+        ("DELETE", ""),
+    ):
+        status, _ = _json_request(
+            method,
+            f"{fastapi_base}/api/files/{file_a}{suffix}",
+            token=token_b,
+        )
+        if status != 404:
+            raise SmokeError("managed file crossed owners")
+
+    status, _ = _multipart_file_request(
+        f"{fastapi_base}/api/files",
+        token=token_a,
+        filename="invalid.json",
+        content=b"{",
+        content_type="application/json",
+    )
+    if status != 400:
+        raise SmokeError("invalid managed file was accepted")
+    status, _ = _multipart_file_request(
+        f"{fastapi_base}/api/files",
+        token=token_a,
+        filename="oversized.txt",
+        content=b"x" * (MANAGED_FILE_MAX_BYTES + 1),
+        content_type="text/plain",
+    )
+    if status != 413:
+        raise SmokeError("oversized managed file was accepted")
+
+    _verify_langgraph_managed_file(
+        context,
+        file_id=file_a,
+        user_id=users[0][0],
+        expected_content=file_contents[0],
+    )
+    _verify_langgraph_managed_file(
+        context,
+        file_id=file_a,
+        user_id=users[1][0],
+        expected_content=None,
+    )
+
     status, assistants = _json_request(
         "POST",
         f"{langgraph_base}/assistants/search",
@@ -626,8 +815,6 @@ def verify_tenant_isolation(
             raise SmokeError("tenant thread search crossed owners")
 
     thread_a = str(created[0]["thread_id"])
-    token_a = users[0][1]
-    token_b = users[1][1]
     for method, path, body in (
         ("GET", f"/threads/{thread_a}", None),
         ("GET", f"/threads/{thread_a}/history", None),
@@ -679,6 +866,13 @@ def verify_tenant_isolation(
     )
     if status not in {403, 404}:
         raise SmokeError("administrator bypassed thread ownership")
+    status, _ = _json_request(
+        "GET",
+        f"{fastapi_base}/api/files/{file_a}",
+        token=token_b,
+    )
+    if status != 404:
+        raise SmokeError("administrator bypassed file ownership")
 
     status, own_thread = _json_request(
         "GET",
@@ -704,6 +898,24 @@ def verify_tenant_isolation(
     ).strip()
     if session_count != "0":
         raise SmokeError("Chat UI thread was double-written to MySQL")
+
+    status, _ = _json_request(
+        "DELETE",
+        f"{fastapi_base}/api/files/{file_a}",
+        token=token_a,
+    )
+    if status != 204:
+        raise SmokeError("managed file owner delete failed")
+    managed_count = _mysql(
+        context,
+        (
+            "SELECT COUNT(*) FROM managed_files "
+            f"WHERE user_id IN ({users[0][0]}, {users[1][0]});"
+        ),
+        "tenant managed file count",
+    ).strip()
+    if managed_count != "1":
+        raise SmokeError("managed file rejection changed stored resources")
 
 
 def verify_revision(context: ComposeContext, expected_head: str) -> None:

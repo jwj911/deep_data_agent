@@ -1,12 +1,13 @@
 import React from "react";
-import { MultimodalPreview } from "./MultimodalPreview";
+
+import type { ManagedFileReference } from "@/lib/managed-file-client";
 import { cn } from "@/lib/utils";
-import { ContentBlock } from "@langchain/core/messages";
+
+import { ManagedFilePreview } from "./ManagedFilePreview";
 
 interface ContentBlocksPreviewProps {
-  blocks: ContentBlock.Multimodal.Data[];
+  blocks: ManagedFileReference[];
   onRemove: (idx: number) => void;
-  size?: "sm" | "md" | "lg";
   className?: string;
 }
 
@@ -17,19 +18,17 @@ interface ContentBlocksPreviewProps {
 export const ContentBlocksPreview: React.FC<ContentBlocksPreviewProps> = ({
   blocks,
   onRemove,
-  size = "md",
   className,
 }) => {
   if (!blocks.length) return null;
   return (
     <div className={cn("flex flex-wrap gap-2 p-3.5 pb-0", className)}>
-      {blocks.map((block, idx) => (
-        <MultimodalPreview
-          key={idx}
-          block={block}
+      {blocks.map((file, idx) => (
+        <ManagedFilePreview
+          key={file.fileId}
+          file={file}
           removable
           onRemove={() => onRemove(idx)}
-          size={size}
         />
       ))}
     </div>
