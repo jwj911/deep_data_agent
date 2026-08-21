@@ -5,11 +5,11 @@
 
 ## [Unreleased]
 
-### 约束 Agent 资源使用（2026-08-21，本地完成、远端待验证）
+### 约束 Agent 资源使用（2026-08-21，本地与 Hosted 完成）
 
-- `bound-agent-resource-use` 已完成本地实现与验证，成为第 11 个已完成或本地完成的
-  change-id；Roadmap 余下 8 个候选，下一候选为 `prove-data-recovery`。当前尚未
-  提交，不记录本 change-id 的实现提交或远端运行标识。
+- `bound-agent-resource-use` 已完成本地实现与 implementation Hosted 验证，成为
+  第 11 个已完成 change-id；Roadmap 余下 8 个候选，下一候选为
+  `prove-data-recovery`。
 - 新增 Agent、模型、搜索和 Redis 恢复预算配置、关系校验、Compose 默认值与发布
   契约。FastAPI 查询/最终响应默认上限为 8,000/32,000 个字符；每 run 默认
   60 秒、recursion 25、模型调用 8 次、工具调用 12 次。
@@ -42,10 +42,17 @@
   legacy 与 Redis stop/start canary 全部通过；Redis 停止时 live 保持 200、ready
   转 503、Agent fail-closed，恢复后后端无需重启。模型/搜索调用为 0，容器、网络、
   卷、临时配置和生成物已清理。
+- implementation SHA `1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 GitHub
+  Actions run `32431502248`（2026-08-21T00:08:27Z..00:11:51Z）为
+  `completed/success`；Backend `96623829169`、Frontend `96623829344`、Release
+  Contracts `96623829444`、Container Smoke `96623829378` 均为 `success`。
+- 最终验收文档提交只有在其自身 exact SHA 的上述四个 Hosted Job 全部成功后才
+  成立；创建本记录时最终 SHA 与 run ID 尚未知，不记录推测值，也不以
+  implementation run 代替最终证据。
 - 历史 18 项新增关闭 `AUD-004`、`AUD-008`、`AUD-009`，当前开放
   **8 项：0 P0 / 1 P1 / 6 P2 / 1 P3**；`RR-004` 以删除运行时代码执行收口，
   `RR-006` 以固定 Redis 策略矩阵和自动恢复收口。生产仍为 **NO-GO**：唯一剩余
-  P1 `AUD-007` 与 `RR-001` 的迁移/备份恢复边界尚未关闭，且本轮远端门禁待验证。
+  P1 `AUD-007` 与 `RR-001` 的迁移/备份恢复边界尚未关闭。
 
 ### 隔离文件摄取（2026-08-17，本地与 Hosted 完成）
 

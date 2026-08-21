@@ -89,16 +89,24 @@
     1 P1 / 6 P2 / 1 P3。
   - [x] SubTask 6.6: 独立执行 `checklist.md` 25 项；失败项先新增修复任务并复验。
 
-- [ ] Task 7: 创建原子提交、推送并验证两轮 Hosted 闭环。
+- [x] Task 7: 创建原子提交、推送并验证两轮 Hosted 闭环。
   - [x] SubTask 7.1: 复核暂存范围、凭据、诊断、容器和生成物，只包含本轮必要文件。
-  - [ ] SubTask 7.2: 创建 `bound-agent-resource-use` implementation 提交；远端前进
+  - [x] SubTask 7.2: 创建 `bound-agent-resource-use` implementation 提交；远端前进
     时安全整合并重跑受影响门禁。
-  - [ ] SubTask 7.3: 推送 `main`，确认本地/origin/GitHub 完整 SHA 一致且工作区
+  - [x] SubTask 7.3: 推送 `main`，确认本地/origin/GitHub 完整 SHA 一致且工作区
     干净。
-  - [ ] SubTask 7.4: 通过 GitHub API 确认 implementation SHA 的 Backend、Frontend、
+  - [x] SubTask 7.4: 通过 GitHub API 确认 implementation SHA 的 Backend、Frontend、
     Release Contracts、Container Smoke 全部成功。
-  - [ ] SubTask 7.5: 同步最终 run 证据、tasks/checklist/Roadmap/CHANGELOG，提交并
-    推送验收记录，再等待最终 HEAD 四个 Hosted Job 成功。
+  - [x] SubTask 7.5: 同步 implementation run 证据及最终验收条件、tasks/checklist/
+    Roadmap/CHANGELOG，提交并推送验收记录，再等待最终 HEAD 四个 Hosted Job 成功。
+  - implementation 证据：SHA `1090c3ea0954e84cc2cb6b945ef8c3913393cec8`，
+    Hosted run `32431502248` 为 `completed/success`；Backend `96623829169`、
+    Frontend `96623829344`、Release Contracts `96623829444`、Container Smoke
+    `96623829378` 均为 `success`。
+  - 后置条件：Task 7 与 SubTask 7.5 的勾选只有在最终验收文档提交已推送，且该
+    exact SHA 的上述四个 Hosted Job 全部成功、本地/origin/GitHub SHA 一致、工作区
+    干净时才成立。创建本记录时最终 SHA 与 run ID 尚未知，不记录推测值；若后续
+    任一 Job 失败，则本勾选无效且不得报告闭环完成。
 
 # Task Dependencies
 
@@ -107,4 +115,5 @@
 - Task 5.2..5.5 依赖 Task 4 的恢复状态和 Task 3 的 Agent fail-closed 语义。
 - Task 5A 依赖 Task 2、Task 3、Task 4。
 - Task 6 依赖 Task 5 和 Task 5A。
-- Task 7 依赖 Task 6 与清单前 24 项；第 25 项由远端交付闭环完成。
+- Task 7 依赖 Task 6 与清单前 24 项；第 25 项及 Task 7/7.5 勾选均以上述最终
+  exact-SHA Hosted 后置条件实际满足为准。

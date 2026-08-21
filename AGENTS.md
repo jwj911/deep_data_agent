@@ -37,9 +37,9 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
   fail-open/fail-closed，并在退避后自动恢复。
 - Docker Compose：编排 5 个服务，并让 FastAPI/LangGraph 共享受管文件卷。
 
-仓库现有 11 个已完成或本地完成的 change-id；当前
-`.trae/specs/bound-agent-resource-use/` 已完成本地实现与验证，远端验证待提交后
-执行。该 change-id 为 Agent、模型和工具增加预算，建立 Redis 自动恢复与分级保护，
+仓库现有 11 个已完成 change-id；当前
+`.trae/specs/bound-agent-resource-use/` 已完成本地实现与 implementation Hosted
+验证。该 change-id 为 Agent、模型和工具增加预算，建立 Redis 自动恢复与分级保护，
 拆分 liveness/readiness，并永久移除运行时任意 Python 执行能力。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
@@ -55,8 +55,13 @@ contract pytest 159 项；isort、发布契约脚本、Alembic 唯一 head、Com
 差异检查通过。Node.js 22.22.2、pnpm 10.5.1 下 typecheck、零警告 lint、
 format:check、build 全部通过。Docker Engine 29.4.1、Docker Desktop 4.71.0、
 Compose 5.1.3 下 empty/head/legacy 与 Redis canary 全部通过；模型/搜索调用为 0，
-容器、网络、卷、临时配置和生成物已清理。本 change-id 尚未提交，不存在可记录的
-当前实现提交或远端运行证据。
+容器、网络、卷、临时配置和生成物已清理。implementation SHA
+`1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 Hosted run `32431502248`
+（2026-08-21T00:08:27Z..00:11:51Z）为 `completed/success`；Backend
+`96623829169`、Frontend `96623829344`、Release Contracts `96623829444`、
+Container Smoke `96623829378` 均为 `success`。最终验收文档提交只有在其自身
+exact SHA 的同四个 Job 全部成功后才成立；创建本文档内容时该 SHA 与 run ID 尚
+未知，不得用 implementation run 替代或虚构。
 
 ## 3. 关键结构
 
@@ -276,8 +281,11 @@ head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用�
 2026-08-21 的当前工作树已取得 Python 3.12.9 全量 452 项测试、8 项迁移定向
 测试、159 项 release contract pytest，Node.js 22.22.2 与 pnpm 10.5.1 前端
 四门禁，以及 Docker Engine 29.4.1 / Desktop 4.71.0 / Compose 5.1.3 下
-empty、head、legacy 和 Redis canary 本地证据。当前 change-id 远端验证待提交后
-执行，不得把既有 change-id 的 Hosted 结果外推到本轮。
+empty、head、legacy 和 Redis canary 本地证据。implementation SHA
+`1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 Hosted run `32431502248`
+及 Backend `96623829169`、Frontend `96623829344`、Release Contracts
+`96623829444`、Container Smoke `96623829378` 已全部成功。最终验收文档提交仍须
+由其自身 exact SHA 的四个 Hosted Job 证明，不能把 implementation 结果外推。
 
 ## 7. 安全现状
 
@@ -340,8 +348,8 @@ empty、head、legacy 和 Redis canary 本地证据。当前 change-id 远端验
 - `README.md`：本地开发、配置、Docker 和验证命令。
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、问题清单、
   证据边界与发布判断。
-- `.trae/documents/roadmap.md`：11 个已完成或本地完成的 change-id 和 8 个候选
-  迭代；`bound-agent-resource-use` 远端待验证。
+- `.trae/documents/roadmap.md`：11 个已完成 change-id 和 8 个候选迭代；
+  `bound-agent-resource-use` 已完成，下一候选为 `prove-data-recovery`。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
@@ -357,5 +365,6 @@ empty、head、legacy 和 Redis canary 本地证据。当前 change-id 远端验
   Agent 第一方身份与租户边界规格。
 - `.trae/specs/isolate-file-ingestion/`：已完成本地与 Hosted 验收的 owner 受管
   文件与安全摄取规格。
-- `.trae/specs/bound-agent-resource-use/`：已完成本地验证、远端待验证的 Agent
-  预算、Redis 恢复、健康语义与代码执行移除规格。
+- `.trae/specs/bound-agent-resource-use/`：已完成本地与 implementation Hosted
+  验证的 Agent 预算、Redis 恢复、健康语义与代码执行移除规格；最终验收文档提交
+  另以其 exact SHA 四个 Hosted Job 成功为成立条件。

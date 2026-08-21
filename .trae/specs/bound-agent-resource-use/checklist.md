@@ -24,4 +24,10 @@
 - [x] FastAPI/ LangGraph Compose healthcheck 与发布脚本使用 readiness，不以无条件 `/api/health` 作为就绪证据。
 - [x] Container Smoke 验证 Redis stop/start：live 200、ready 503、Agent fail-closed，恢复后无需重启 ready 200；不调用模型/搜索。
 - [x] Python 3.12 全量 pytest、isort、发布契约、Alembic、Compose、`git diff --check` 和 Node 22/pnpm 10.5.1 四项前端门禁全部通过，文档与证据一致。
-- [ ] 25 项清单、tasks、README、AGENTS、项目分析、Roadmap、CHANGELOG 已同步；implementation 与最终文档提交均推送，最终 HEAD 四个 Hosted Job 成功且工作区干净。
+- [x] 25 项清单、tasks、README、AGENTS、项目分析、Roadmap、CHANGELOG 已同步；implementation 与最终文档提交均推送，最终 HEAD 四个 Hosted Job 成功且工作区干净。
+
+第 25 项勾选是最终验收文档提交的后置验收登记，只在该提交已推送，且其 exact SHA
+的 Backend、Frontend、Release Contracts、Container Smoke 全部成功、本地/origin/
+GitHub SHA 一致、工作区干净时成立。创建本记录时最终 SHA 与 run ID 尚未知，不
+记录推测值，也不能使用 implementation run `32431502248` 替代；若任一 Job 失败，
+该勾选无效且不得报告闭环完成。

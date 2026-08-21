@@ -30,14 +30,14 @@ Actions、迁移、认证授权、可观测性和发布契约。`utils/` 作为�
 | 日期与版本 | 2026-08-12，分支 `main`，完整 HEAD `f6cf4e65d8b15114fc164fd6921bd65d6ad27862`。审计开始前该已推送 HEAD 的工作区干净。 |
 | 交付前复核 | 2026-08-16 在同一运行时代码基线上重跑后端、前端、发布契约、Compose 解析与差异检查；两名新的独立验证者逐项确认全部 18 个最终问题，结论仍为 18/18 均 2/2 高置信度。复核只收紧证据边界，不改变严重度、问题数或 Roadmap 映射。 |
 | 审计收口工作区 | 审计收口只修改 5 个治理文档及 `.trae/specs/audit-project-roadmap/`，没有运行时代码、测试、依赖或配置改动。该记录描述历史审计收口，不是当前工作树状态。 |
-| 当前工作树 | `bound-agent-resource-use` 已完成本地实现与验证：统一 Agent/模型/工具预算，增加 Redis 双层并发租约和自动恢复，拆分 liveness/readiness，并删除运行时任意 Python 执行能力；治理文档同步完成，远端验证待提交后执行。 |
-| Roadmap 状态 | 既有 10 个已完成 change-id，加上本地完成、远端待验证的 `bound-agent-resource-use`，共 11 个已完成或本地完成项；余下 8 个候选，下一候选为 `prove-data-recovery`。 |
+| 当前工作树 | `bound-agent-resource-use` 已完成本地实现与 implementation Hosted 验证：统一 Agent/模型/工具预算，增加 Redis 双层并发租约和自动恢复，拆分 liveness/readiness，并删除运行时任意 Python 执行能力。 |
+| Roadmap 状态 | `bound-agent-resource-use` 成为第 11 个已完成 change-id；余下 8 个候选，下一候选为 `prove-data-recovery`。 |
 | 后端本地证据 | Python 3.12.9；`pytest -q` 共 **452 项通过**，`tests/test_migrations.py` 定向测试 **8 项通过**，release contract pytest **159 项通过**；isort、发布契约脚本、Alembic 唯一 head、Compose 和 `git diff --check` 通过。 |
 | 前端本地证据 | Node.js `v22.22.2` 与 pnpm `10.5.1` 的 `typecheck`、零警告 `lint`、`format:check`、`build` 全部通过。 |
 | 前端版本边界 | `agent_chatui/package.json` 支持 Node [`>=22.11.0 <23`](../../agent_chatui/package.json#L10-L14) 与 pnpm `10.5.1`。本机默认 Node.js 25.2.1 不在支持范围，本轮发布证据来自明确选择的 Node.js 22.22.2；历史 Hosted Frontend Job 只证明审计目标 SHA 的 Node 22 门禁。 |
 | 本地容器证据 | Docker Engine 29.4.1、Docker Desktop 4.71.0、Compose 5.1.3；当前源码五服务 empty、head、legacy 场景与 Redis stop/start canary 全部通过。canary 证明 Redis 停止时 live 为 200、ready 为 503、Agent fail-closed，恢复后后端不重启即重新 ready。 |
 | 外部调用与清理 | 容器验收只使用专用假配置、脱敏 canary 和不可外连模型地址；模型/搜索调用均为 0，未使用生产数据。容器、网络、卷、临时配置及生成物已完整清理。 |
-| 本轮远端证据 | 当前 change-id 尚未提交，远端验证待后续执行；不得把历史 change-id 的远端结果外推到本轮，也不记录当前实现提交或运行标识。 |
+| 本轮远端证据 | implementation SHA `1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 Hosted run `32431502248`（2026-08-21T00:08:27Z..00:11:51Z）为 `completed/success`；Backend `96623829169`、Frontend `96623829344`、Release Contracts `96623829444`、Container Smoke `96623829378` 均为 `success`。最终验收文档提交只有在其自身 exact SHA 的同四个 Job 全部成功后才成立；创建本文档内容时最终 SHA 与 run ID 尚未知，不记录推测值。 |
 | 明确缺口 | 未执行真实模型/搜索/业务数据调用、完整浏览器 E2E、生产备份恢复或容量压测；受管文件卷仍受 `RR-001` 约束。`AUD-006` 的可重复供应链、`AUD-007` 的未知 schema fail-closed 和 `langgraph-api 0.7.28` EOL 未由本轮关闭。 |
 
 ### 1.3 共识方法与严重度
@@ -200,7 +200,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | Redis 恢复与固定窗口限流 | 身份分桶、429、代理边界、健康豁免、1..30 秒单飞恢复和 scope 策略矩阵测试通过；容器 canary 证明 Redis 恢复后无需重启。 |
 | 分层健康语义 | `/api/live` 与兼容 `/api/health` 不查依赖；`/api/ready` 浅检查固定组件，Compose/Container Smoke 使用 readiness 且不调用模型或搜索。 |
 | 前端连接与静态质量门禁 | 固定 Agent/REST Origin，受管上传只写 UUID 引用；Node 22 四门禁和无凭据 Chromium 附件交互通过，构建无远程字体依赖。完整 Hosted 行为测试缺口仍见 `AUD-020`。 |
-| 本地发布门禁 | 当前工作树后端 452 项、迁移 8 项、release contract pytest 159 项、前端四门禁、静态契约及五服务 empty/head/legacy/Redis canary 通过；本 change-id 远端待验证。 |
+| 发布门禁 | 当前工作树后端 452 项、迁移 8 项、release contract pytest 159 项、前端四门禁、静态契约及五服务 empty/head/legacy/Redis canary 通过；implementation SHA 的 Hosted 四个 Job 也已成功。 |
 
 ### 3.2 已实现但本轮未验证
 
@@ -318,7 +318,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-004：同步 Agent 调用阻塞事件循环且缺少端到端预算
 
 - **严重度 / 信心**：**P1 / 2/2 高置信度**。
-- **当前状态**：**当前工作树已关闭（本地代码、测试与容器证据；远端待验证）**。
+- **当前状态**：**当前工作树已关闭（本地代码、测试、容器与 Hosted 证据）**。
 - **证据**：异步 FastAPI 路由直接调用同步服务：
   [data_agent/agent_server.py:L68-L75](../../data_agent/agent_server.py#L68-L75)；
   服务执行同步图 `.invoke()`：
@@ -363,7 +363,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-008：Redis 短暂故障会让缓存与限流永久降级
 
 - **严重度 / 信心**：**P1 / 2/2 高置信度**。
-- **当前状态**：**当前工作树已关闭（本地代码、测试与容器证据；远端待验证）**。
+- **当前状态**：**当前工作树已关闭（本地代码、测试、容器与 Hosted 证据）**。
 - **证据**：缓存连接错误后把实例设为不可用，后续操作直接短路：
   [data_agent/services/cache_service.py:L49-L66](../../data_agent/services/cache_service.py#L49-L66)；
   限流服务同样永久置为不可用：
@@ -483,7 +483,7 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 #### AUD-009：健康端点无条件成功却被当作 readiness
 
 - **严重度 / 信心**：**P2 / 2/2 高置信度**。
-- **当前状态**：**当前工作树已关闭（本地代码、测试与容器证据；远端待验证）**。
+- **当前状态**：**当前工作树已关闭（本地代码、测试、容器与 Hosted 证据）**。
 - **证据**：`/api/health` 无条件返回成功：
   [data_agent/agent_server.py:L110-L113](../../data_agent/agent_server.py#L110-L113)；
   Compose 用它判断 FastAPI 可接流量：
@@ -599,12 +599,12 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 | `AUD-001` | `exists=true`<br>`severity=P1`<br>`reason=公开 Agent 入口未贯穿第一方身份。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | `exists=true`<br>`severity=P1`<br>`reason=线程检索缺少主体所有权条件。`<br>`evidence=`[Thread:L32-L40](../../agent_chatui/src/providers/Thread.tsx#L32-L40) | 保留，Spec 裁决 `P0`。 |
 | `AUD-002` | `exists=true`<br>`severity=P1`<br>`reason=默认工具接受调用方本地路径。`<br>`evidence=`[document_analysis:L21-L43](../../data_agent/tools/document_analysis.py#L21-L43) | `exists=true`<br>`severity=P1`<br>`reason=未见允许根、所有权或符号链接约束。`<br>`evidence=`[document_analysis:L21-L43](../../data_agent/tools/document_analysis.py#L21-L43) | 保留，Spec 裁决 `P0`。 |
 | `AUD-003` | `exists=true`<br>`severity=P1`<br>`reason=查询参数可改变携带 Key 的目标 URL。`<br>`evidence=`[Thread:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40) | `exists=true`<br>`severity=P1`<br>`reason=持久化 Key 可被发送到非信任 Origin。`<br>`evidence=`[Thread:L22-L40](../../agent_chatui/src/providers/Thread.tsx#L22-L40) | 保留，Spec 裁决 `P0`。 |
-| `AUD-004` | `exists=true`<br>`severity=P1`<br>`reason=异步路由执行同步图调用。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | `exists=true`<br>`severity=P1`<br>`reason=递归、并发、Token、工具和输出预算不完整。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | 审计时保留并裁决 `P1`；当前工作树由 `bound-agent-resource-use` 本地证据关闭，远端待验证。 |
+| `AUD-004` | `exists=true`<br>`severity=P1`<br>`reason=异步路由执行同步图调用。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | `exists=true`<br>`severity=P1`<br>`reason=递归、并发、Token、工具和输出预算不完整。`<br>`evidence=`[agent_server:L68-L75](../../data_agent/agent_server.py#L68-L75) | 审计时保留并裁决 `P1`；当前工作树由 `bound-agent-resource-use` 本地与 Hosted 证据关闭。 |
 | `AUD-005` | `exists=true`<br>`severity=P2`<br>`reason=上传仅按客户端 MIME/重复项筛选。`<br>`evidence=`[use-file-upload:L47-L78](../../agent_chatui/src/hooks/use-file-upload.tsx#L47-L78) | `exists=true`<br>`severity=P2`<br>`reason=文件整体 Base64 并入线程且无总量预算。`<br>`evidence=`[use-file-upload:L47-L78](../../agent_chatui/src/hooks/use-file-upload.tsx#L47-L78) | 保留，Spec 裁决 `P2`。 |
 | `AUD-006` | `exists=true`<br>`severity=P2`<br>`reason=Python 直接依赖大多未固定且无哈希锁。`<br>`evidence=`[requirements:L1-L28](../../requirements.txt#L1-L28) | `exists=true`<br>`severity=P2`<br>`reason=包与安装契约不可重复。`<br>`evidence=`[requirements:L1-L28](../../requirements.txt#L1-L28) | 保留，Spec 裁决 `P2`；吸收 `AUD-021`。 |
 | `AUD-007` | `exists=true`<br>`severity=P1`<br>`reason=只见 users 表即可 stamp 固定基线。`<br>`evidence=`[database:L107-L114](../../data_agent/config/database.py#L107-L114) | `exists=true`<br>`severity=P1`<br>`reason=未知或漂移 schema 可被误认兼容。`<br>`evidence=`[database:L94-L114](../../data_agent/config/database.py#L94-L114) | 保留，Spec 裁决 `P1`。 |
-| `AUD-008` | `exists=true`<br>`severity=P1`<br>`reason=Redis 故障后限流永久 fail-open。`<br>`evidence=`[rate_limit_service:L134-L142](../../data_agent/services/rate_limit_service.py#L134-L142) | `exists=true`<br>`severity=P1`<br>`reason=无重连或探活恢复路径。`<br>`evidence=`[rate_limit_service:L57-L109](../../data_agent/services/rate_limit_service.py#L57-L109) | 审计时保留并裁决 `P1`；当前工作树由 `bound-agent-resource-use` 本地证据关闭，远端待验证。 |
-| `AUD-009` | `exists=true`<br>`severity=P2`<br>`reason=健康端点无条件成功。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | `exists=true`<br>`severity=P2`<br>`reason=该端点不能证明服务可处理业务请求。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | 审计时保留并裁决 `P2`；当前工作树由 `bound-agent-resource-use` 本地证据关闭，远端待验证。 |
+| `AUD-008` | `exists=true`<br>`severity=P1`<br>`reason=Redis 故障后限流永久 fail-open。`<br>`evidence=`[rate_limit_service:L134-L142](../../data_agent/services/rate_limit_service.py#L134-L142) | `exists=true`<br>`severity=P1`<br>`reason=无重连或探活恢复路径。`<br>`evidence=`[rate_limit_service:L57-L109](../../data_agent/services/rate_limit_service.py#L57-L109) | 审计时保留并裁决 `P1`；当前工作树由 `bound-agent-resource-use` 本地与 Hosted 证据关闭。 |
+| `AUD-009` | `exists=true`<br>`severity=P2`<br>`reason=健康端点无条件成功。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | `exists=true`<br>`severity=P2`<br>`reason=该端点不能证明服务可处理业务请求。`<br>`evidence=`[agent_server:L110-L113](../../data_agent/agent_server.py#L110-L113) | 审计时保留并裁决 `P2`；当前工作树由 `bound-agent-resource-use` 本地与 Hosted 证据关闭。 |
 | `AUD-010` | `exists=true`<br>`severity=P2`<br>`reason=会话和消息列表直接全量读取。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | `exists=true`<br>`severity=P2`<br>`reason=历史增长会形成无界响应和内存压力。`<br>`evidence=`[session_service:L34-L46](../../data_agent/services/session_service.py#L34-L46) | 保留，Spec 裁决 `P2`；吸收 `AUD-013`。 |
 | `AUD-011` | `exists=true`<br>`severity=P2`<br>`reason=Hosted CI 未构建或启动发布镜像。`<br>`evidence=`[workflow:L92-L101](../../.github/workflows/release-readiness.yml#L92-L101) | `exists=true`<br>`severity=P2`<br>`reason=静态 Compose 检查不能发现容器启动错误。`<br>`evidence=`[workflow:L80-L101](../../.github/workflows/release-readiness.yml#L80-L101) | 审计时保留并裁决 `P2`；当前工作树已由本地与 Hosted 证据关闭。 |
 | `AUD-012` | `exists=true`<br>`severity=P2`<br>`reason=审计 HMAC 直接复用 JWT 密钥。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | `exists=true`<br>`severity=P2`<br>`reason=两个安全用途不能独立授权和轮换。`<br>`evidence=`[audit:L10-L23](../../data_agent/observability/audit.py#L10-L23) | 保留，Spec 裁决 `P2`。 |
@@ -664,7 +664,9 @@ Compose 或工作流导入它。因而不能把其中旧依赖、日志、凭据
 **8 项：0 个 P0、1 个 P1、6 个 P2、1 个 P3**。剩余 P1 `AUD-007` 会让未知或
 漂移 schema 被盲目 stamp，且 `RR-001` 的备份恢复尚未验证；这两项直接阻断生产
 数据发布。P0 全部关闭、452 项测试及本地容器 canary 均不能抵消该数据完整性风险。
-此外，当前 change-id 远端门禁尚未执行，不能视为完成交付闭环。
+`bound-agent-resource-use` implementation SHA 已通过 Hosted 四个 Job，但最终验收
+文档提交仍只有在其自身 exact SHA 的四个 Job 全部成功后才构成交付闭环；该条件
+不能由 implementation run 替代。
 
 **本地开发与受控审计：有条件继续。** 可在不使用真实业务数据、不恢复已删除的
 Python 执行、不暴露到非受控网络、使用已隔离测试凭据和可重建数据的前提下继续
@@ -681,6 +683,8 @@ Python 执行、不暴露到非受控网络、使用已隔离测试凭据和可�
 4. 重新在锁定 SHA 上执行 Python 3.12 全量后端门禁、前端门禁、发布契约、镜像
    构建、容器内迁移与 readiness 冒烟；若目标是网络化部署，再执行真实部署拓扑的
    隔离、恢复、并发与故障验证。
-5. `bound-agent-resource-use` 当前只有本地证据；提交后仍须在目标提交上执行
-   Backend、Frontend、Release Contracts、Container Smoke，并在最终文档状态
-   提交上再次通过。远端结果未取得前不得写成成功。
+5. `bound-agent-resource-use` implementation SHA
+   `1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 run `32431502248` 已通过
+   Backend、Frontend、Release Contracts、Container Smoke。最终验收文档提交仍须
+   在其 exact SHA 上再次通过同四个 Job；在结果取得前，tasks/checklist 的最终
+   勾选只表示该后置验收条件，不得报告闭环完成。

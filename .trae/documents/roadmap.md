@@ -3,11 +3,11 @@
 > 状态日期：2026-08-21。历史审计保留 18 个 2/2 高置信度问题；当前工作树已由
 > `restore-runtime-release-gates`、`secure-agent-tenant-boundaries` 和
 > `isolate-file-ingestion` 关闭 `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、
-> `AUD-003`、`AUD-002`、`AUD-005`，并由本地完成、远端待验证的
+> `AUD-003`、`AUD-002`、`AUD-005`，并由已完成的
 > `bound-agent-resource-use` 关闭 `AUD-004`、`AUD-008`、`AUD-009`。当前开放
-> **8 项：0 P0 / 1 P1 / 6 P2 / 1 P3**。本文现有 11 个已完成或本地完成
+> **8 项：0 P0 / 1 P1 / 6 P2 / 1 P3**。本文现有 11 个已完成
 > change-id 和 8 个候选；下一候选为 `prove-data-recovery`，生产发布仍为
-> **NO-GO**。本轮尚未提交，不记录当前实现提交或远端运行标识。
+> **NO-GO**。
 
 ## 1. 使用与决策原则
 
@@ -23,7 +23,7 @@
   关闭；出现凭据泄露、跨租户访问、不可恢复数据变化或无法限制的资源消耗时立即
   停止对应迭代。
 
-## 2. 已完成或本地完成的 11 个 change-id
+## 2. 已完成的 11 个 change-id
 
 | 顺序 | change-id | 里程碑 | 主要边界 | 状态 |
 | --- | --- | --- | --- | --- |
@@ -37,7 +37,7 @@
 | 8 | `restore-runtime-release-gates` | 恢复运行时发布门禁 | 镜像迁移资产、全 Git 文本凭据扫描、本地五服务/迁移冒烟和 Hosted Container Smoke | 已完成（本地与 Hosted 证据） |
 | 9 | `secure-agent-tenant-boundaries` | 保护 Agent 租户边界 | 第一方 JWT 贯穿 FastAPI/LangGraph，thread/run owner、租户缓存和固定浏览器 Origin | 已完成（本地与 Hosted 证据） |
 | 10 | `isolate-file-ingestion` | 隔离文件摄取 | owner 受管 UUID 文件、格式/配额/保留、无任意路径和无新 Base64 thread | 已完成（本地与 Hosted 证据） |
-| 11 | `bound-agent-resource-use` | 约束 Agent 资源使用 | Agent/模型/工具预算、Redis 恢复与策略矩阵、分层健康、删除任意 Python 执行 | 本地已完成，远端待验证 |
+| 11 | `bound-agent-resource-use` | 约束 Agent 资源使用 | Agent/模型/工具预算、Redis 恢复与策略矩阵、分层健康、删除任意 Python 执行 | 已完成（本地与 Hosted 证据） |
 
 ## 3. 优先级依据
 
@@ -57,7 +57,7 @@
 ```mermaid
 flowchart TD
     DONE["10 个既有已完成 change-id<br/>含 isolate-file-ingestion"]:::completed
-    BUDGET["11 bound-agent-resource-use<br/>本地已完成 / 远端待验证"]:::local
+    BUDGET["11 bound-agent-resource-use<br/>本地与 Hosted 已完成"]:::completed
 
     RECOVERY["1 prove-data-recovery<br/>下一候选：迁移 / 备份 / 恢复"]:::critical
     BASE["2 stabilize-delivery-baseline<br/>P2：依赖 / 前端测试 / utils 决策"]:::medium
@@ -88,7 +88,6 @@ flowchart TD
     IDENTITY -.->|独立密钥完成后| AUDIT
 
     classDef completed fill:#14532d,color:#ffffff,stroke:#052e16,stroke-width:2px;
-    classDef local fill:#166534,color:#ffffff,stroke:#052e16,stroke-width:2px,stroke-dasharray:5 3;
     classDef critical fill:#991b1b,color:#ffffff,stroke:#450a0a,stroke-width:3px;
     classDef parallel fill:#1d4ed8,color:#ffffff,stroke:#172554,stroke-width:2px;
     classDef medium fill:#6d28d9,color:#ffffff,stroke:#2e1065,stroke-width:2px;
@@ -214,8 +213,7 @@ Mermaid 节点编号为准。
 
 ### 5.5 `bound-agent-resource-use`
 
-- **状态**：本地已完成、远端待验证；不再计入 8 个候选。当前尚未提交，不记录
-  实现提交或远端运行标识。
+- **状态**：已完成本地与 implementation Hosted 验收；不再计入 8 个候选。
 - **目标**：为 Agent、模型与工具建立端到端预算，恢复 Redis 故障后的受控行为，
   并让健康端点反映真实的存活/就绪状态。
 - **映射**：`AUD-004`（P1，Agent/工具缺少完整执行预算）、`AUD-008`（P1，Redis
@@ -240,8 +238,14 @@ Mermaid 节点编号为准。
   Node.js 22.22.2、pnpm 10.5.1 的 typecheck、零警告 lint、format:check、build
   通过。Docker Engine 29.4.1、Desktop 4.71.0、Compose 5.1.3 下 empty/head/
   legacy 与 Redis canary 全部通过；模型/搜索调用为 0，资源已清理。
-- **远端边界**：Backend、Frontend、Release Contracts、Container Smoke 尚待
-  提交后在目标提交上验证；本地完成不等于远端交付闭环。
+- **Hosted 证据**：implementation SHA
+  `1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 run `32431502248`
+  （2026-08-21T00:08:27Z..00:11:51Z）为 `completed/success`；Backend
+  `96623829169`、Frontend `96623829344`、Release Contracts `96623829444`、
+  Container Smoke `96623829378` 均为 `success`。
+- **最终文档门禁**：最终验收文档提交只有在其自身 exact SHA 的同四个 Hosted
+  Job 全部成功后才成立。创建本记录时该 SHA 与 run ID 尚未知，不记录推测值，
+  也不能以 implementation run 替代。
 - **非目标**：不建设通用容器编排平台、分布式调度器、自动封禁系统或无限重试；
   不恢复半成品代码沙箱，不以 readiness 代替外部监控、SLO 或生产容量验证。
 - **保留边界**：`AUD-007`、`RR-001`、`AUD-006` 等剩余风险不由本轮关闭；生产
@@ -414,9 +418,9 @@ Mermaid 节点编号为准。
 | `AUD-003` | `P0` | `secure-agent-tenant-boundaries` | 前端固定 Agent Origin、移除持久化 API Key 并增加发布契约，已关闭 |
 | `AUD-002` | `P0` | `isolate-file-ingestion` | 任意路径工具已改为认证主体 + owner UUID，路径/符号链接/漂移测试通过，已关闭 |
 | `AUD-005` | `P2` | `isolate-file-ingestion` | 服务端格式/请求体/配额/保留与无 Base64 引用链完成，已关闭 |
-| `AUD-004` | `P1` | `bound-agent-resource-use` | Agent/模型/工具、deadline、输入/输出和双层租约预算由本地代码、测试与容器证据关闭；远端待验证 |
-| `AUD-008` | `P1` | `bound-agent-resource-use` | Redis 单飞退避、自动恢复和 fail-open/fail-closed 矩阵由本地故障注入与 canary 关闭；远端待验证 |
-| `AUD-009` | `P2` | `bound-agent-resource-use` | liveness/readiness 拆分、固定组件浅检查和 Compose 健康契约由本地证据关闭；远端待验证 |
+| `AUD-004` | `P1` | `bound-agent-resource-use` | Agent/模型/工具、deadline、输入/输出和双层租约预算由本地代码、测试、容器与 Hosted 证据关闭 |
+| `AUD-008` | `P1` | `bound-agent-resource-use` | Redis 单飞退避、自动恢复和 fail-open/fail-closed 矩阵由本地故障注入、canary 与 Hosted 证据关闭 |
+| `AUD-009` | `P2` | `bound-agent-resource-use` | liveness/readiness 拆分、固定组件浅检查和 Compose 健康契约由本地与 Hosted 证据关闭 |
 
 ### 8.2 当前开放 8 项
 

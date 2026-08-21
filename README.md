@@ -427,11 +427,25 @@ Docker Engine 29.4.1、Docker Desktop 4.71.0、Compose 5.1.3 下，当前源码�
 empty、head、legacy 场景以及 Redis stop/start canary 全部通过。canary 证明 Redis
 停止时 liveness 保持 200、readiness 转为 503、Agent fail-closed，Redis 恢复后
 后端无需重启即重新 ready。全程模型与搜索调用均为 0，容器、网络、卷、临时配置
-和生成物已清理。当前 change-id 尚未提交，远端 Hosted 验证待后续完成；本段不绑定
-implementation SHA 或 run ID。
+和生成物已清理。
 
-以下提交与运行标识只记录既有 change-id 的历史远端证据，不属于当前尚未提交的
-`bound-agent-resource-use`：
+`bound-agent-resource-use` implementation SHA
+`1090c3ea0954e84cc2cb6b945ef8c3913393cec8` 的 GitHub Actions
+[run `32431502248`](https://github.com/jwj911/deep_data_agent/actions/runs/32431502248)
+（2026-08-21T00:08:27Z..00:11:51Z）为 `completed/success`，且 `head_sha`
+精确匹配 implementation SHA：
+
+- [Backend `96623829169`](https://github.com/jwj911/deep_data_agent/actions/runs/32431502248/job/96623829169)：`success`
+- [Frontend `96623829344`](https://github.com/jwj911/deep_data_agent/actions/runs/32431502248/job/96623829344)：`success`
+- [Release Contracts `96623829444`](https://github.com/jwj911/deep_data_agent/actions/runs/32431502248/job/96623829444)：`success`
+- [Container Smoke `96623829378`](https://github.com/jwj911/deep_data_agent/actions/runs/32431502248/job/96623829378)：`success`
+
+以上只证明 implementation 提交。最终验收文档提交只有在其自身 exact SHA 的
+Backend、Frontend、Release Contracts、Container Smoke 全部成功后才成立；创建
+本文档内容时最终 SHA 与 run ID 尚未知，因此不记录推测值，也不能用
+`32431502248` 替代最终 Hosted 证据。
+
+以下提交与运行标识记录其他既有 change-id 的历史远端证据：
 
 implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 GitHub Actions
 run `32008059164` 为 `completed/success`；Backend、Frontend、Release Contracts、
@@ -467,9 +481,8 @@ fail-closed 边界。
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
   历史识别的 18 个 2/2 高置信度问题，以及当前开放的 8 项
   （0 P0 / 1 P1 / 6 P2 / 1 P3）；生产发布判断仍为 NO-GO。
-- `.trae/documents/roadmap.md`：11 个已完成或本地完成的 change-id 和 8 个候选
-  迭代；`bound-agent-resource-use` 远端待验证，下一候选为
-  `prove-data-recovery`。
+- `.trae/documents/roadmap.md`：11 个已完成 change-id 和 8 个候选迭代；
+  `bound-agent-resource-use` 已完成，下一候选为 `prove-data-recovery`。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
