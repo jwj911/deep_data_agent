@@ -16,9 +16,29 @@ x-backend-service: &backend-service
     MODEL_NAME: ${MODEL_NAME:-kimi-k2-turbo-preview}
     MODEL_BASE_URL: ${MODEL_BASE_URL:-https://api.moonshot.cn/v1}
     MODEL_TEMPERATURE: ${MODEL_TEMPERATURE:-0.3}
+    MODEL_REQUEST_TIMEOUT_SECONDS: ${MODEL_REQUEST_TIMEOUT_SECONDS:-45}
+    MODEL_MAX_RETRIES: ${MODEL_MAX_RETRIES:-1}
+    MODEL_MAX_OUTPUT_TOKENS: ${MODEL_MAX_OUTPUT_TOKENS:-4096}
+    AGENT_QUERY_MAX_CHARS: ${AGENT_QUERY_MAX_CHARS:-8000}
+    AGENT_RESPONSE_MAX_CHARS: ${AGENT_RESPONSE_MAX_CHARS:-32000}
+    AGENT_RUN_TIMEOUT_SECONDS: ${AGENT_RUN_TIMEOUT_SECONDS:-60}
+    AGENT_RECURSION_LIMIT: ${AGENT_RECURSION_LIMIT:-25}
+    AGENT_MODEL_CALL_LIMIT: ${AGENT_MODEL_CALL_LIMIT:-8}
+    AGENT_TOOL_CALL_LIMIT: ${AGENT_TOOL_CALL_LIMIT:-12}
+    AGENT_GLOBAL_CONCURRENCY_LIMIT: ${AGENT_GLOBAL_CONCURRENCY_LIMIT:-4}
+    AGENT_USER_CONCURRENCY_LIMIT: ${AGENT_USER_CONCURRENCY_LIMIT:-1}
+    AGENT_CONCURRENCY_WAIT_SECONDS: ${AGENT_CONCURRENCY_WAIT_SECONDS:-1}
+    AGENT_CONCURRENCY_LEASE_TTL_SECONDS: ${AGENT_CONCURRENCY_LEASE_TTL_SECONDS:-75}
+    SEARCH_QUERY_MAX_CHARS: ${SEARCH_QUERY_MAX_CHARS:-2000}
+    SEARCH_MAX_RESULTS: ${SEARCH_MAX_RESULTS:-5}
+    SEARCH_TIMEOUT_SECONDS: ${SEARCH_TIMEOUT_SECONDS:-15}
+    SEARCH_MAX_OUTPUT_BYTES: ${SEARCH_MAX_OUTPUT_BYTES:-65536}
     DATABASE_URL: ${COMPOSE_DATABASE_URL:-mysql+pymysql://root:test@mysql:3306/mydb}
     REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
     REDIS_SOCKET_TIMEOUT_SECONDS: ${REDIS_SOCKET_TIMEOUT_SECONDS:-1.0}
+    REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS: ${REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS:-1}
+    REDIS_RECOVERY_MAX_BACKOFF_SECONDS: ${REDIS_RECOVERY_MAX_BACKOFF_SECONDS:-30}
+    REDIS_RECOVERY_JITTER_RATIO: ${REDIS_RECOVERY_JITTER_RATIO:-0.2}
     FILE_STORAGE_ROOT: ${COMPOSE_FILE_STORAGE_ROOT:-/data/managed-files}
     FILE_UPLOAD_MAX_BYTES: ${FILE_UPLOAD_MAX_BYTES:-5242880}
     FILE_UPLOAD_BATCH_MAX_BYTES: ${FILE_UPLOAD_BATCH_MAX_BYTES:-10485760}
@@ -31,7 +51,6 @@ x-backend-service: &backend-service
     JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
-    ENABLE_CODE_EXECUTION: ${ENABLE_CODE_EXECUTION:-false}
     SERVICE_NAME: ${SERVICE_NAME:-deep-data-agent}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     LOG_FILE_PATH: ${LOG_FILE_PATH:-deep_data_agent.log}
@@ -124,7 +143,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=2).close()",
         ]
       interval: 10s
       timeout: 3s
@@ -153,15 +172,15 @@ services:
       <<: *backend-environment
       SERVICE_NAME: langgraph
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
       test:
         [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2024/info', timeout=2)",
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:2024/info', timeout=2).close()\" && python -m data_agent.readiness",
         ]
       interval: 10s
       timeout: 3s

@@ -3,9 +3,11 @@ import importlib
 import json
 import logging
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -20,6 +22,12 @@ from data_agent.tools.tool_manager import ToolManager
 
 def _actor(user_id: int = 1) -> User:
     return User(id=user_id, role=UserRole.USER.value)
+
+
+class _AllowLeaseManager:
+    @asynccontextmanager
+    async def hold_async(self, _subject):
+        yield
 
 
 def test_langgraph_config_exports_dedicated_agent_module() -> None:
@@ -76,15 +84,75 @@ def test_fastapi_lifespan_initializes_database(monkeypatch) -> None:
     asyncio.run(run_lifespan())
 
 
-def test_health_check_does_not_invoke_agent(monkeypatch) -> None:
+@pytest.mark.parametrize("path", ["/api/live", "/api/health"])
+def test_liveness_endpoints_do_not_touch_dependencies(
+    monkeypatch,
+    path,
+) -> None:
     server = importlib.import_module("data_agent.agent_server")
-    invoke = Mock(side_effect=AssertionError("agent invoked by health check"))
-    monkeypatch.setattr(server.global_agent_service, "invoke", invoke)
+    database = importlib.import_module("data_agent.config.database")
+    rate_limit = importlib.import_module(
+        "data_agent.observability.rate_limit_middleware"
+    )
+    file_service = importlib.import_module(
+        "data_agent.services.managed_file_service"
+    )
 
-    response = asyncio.run(server.health_check())
+    def fail(name):
+        return Mock(
+            side_effect=AssertionError(
+                f"{name} touched by liveness endpoint"
+            )
+        )
 
-    assert response == {"status": "healthy"}
-    invoke.assert_not_called()
+    dependency_calls = {
+        "database_init": fail("database init"),
+        "database_session": fail("database session"),
+        "redis_rate_limit": fail("Redis rate limit"),
+        "agent_invoke": AsyncMock(side_effect=fail("Agent")),
+        "agent_graph": fail("Agent graph/model/search"),
+        "file_storage": fail("file storage"),
+    }
+    limiter = Mock()
+    limiter.check = dependency_calls["redis_rate_limit"]
+    monkeypatch.setattr(server, "init_db", dependency_calls["database_init"])
+    monkeypatch.setattr(
+        database,
+        "get_session_factory",
+        dependency_calls["database_session"],
+    )
+    monkeypatch.setattr(rate_limit, "global_rate_limit_service", limiter)
+    monkeypatch.setattr(
+        server.global_agent_service,
+        "ainvoke",
+        dependency_calls["agent_invoke"],
+    )
+    monkeypatch.setattr(
+        server.global_agent_service,
+        "_get_agent",
+        dependency_calls["agent_graph"],
+    )
+    monkeypatch.setattr(
+        file_service.global_managed_file_service,
+        "_storage_root",
+        dependency_calls["file_storage"],
+    )
+
+    async def request_liveness():
+        transport = httpx.ASGITransport(app=server.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.get(path)
+
+    response = asyncio.run(request_liveness())
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "healthy"}
+    assert "X-RateLimit-Limit" not in response.headers
+    for dependency in dependency_calls.values():
+        dependency.assert_not_called()
 
 
 def test_placeholder_model_key_is_reported_as_missing(monkeypatch) -> None:
@@ -118,28 +186,19 @@ def test_redis_connection_failure_degrades_to_cache_miss(
     assert "Redis unavailable; cache disabled" in caplog.text
 
 
-def test_code_execution_is_disabled_by_default(monkeypatch) -> None:
-    monkeypatch.setattr(config, "ENABLE_CODE_EXECUTION", False)
+def test_code_execution_cannot_be_enabled_by_residual_env(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENABLE_CODE_EXECUTION", "true")
 
+    runtime = Config()
+
+    assert not hasattr(runtime, "ENABLE_CODE_EXECUTION")
     assert "execute_python_code" not in ToolManager().get_tool_names()
 
 
-def test_code_execution_requires_explicit_enable(monkeypatch, caplog) -> None:
-    monkeypatch.setattr(config, "ENABLE_CODE_EXECUTION", True)
-    monkeypatch.setattr(
-        logging.getLogger("deep_data_agent"),
-        "propagate",
-        True,
-    )
-
-    tool_manager = ToolManager()
-
-    assert "execute_python_code" in tool_manager.get_tool_names()
-    assert "explicitly enabled" in caplog.text
-
-
 def test_agent_service_propagates_configuration_error(monkeypatch) -> None:
-    service = AgentService()
+    service = AgentService(lease_manager=_AllowLeaseManager())
     monkeypatch.setattr(
         service,
         "_get_agent",
@@ -147,25 +206,34 @@ def test_agent_service_propagates_configuration_error(monkeypatch) -> None:
     )
 
     with pytest.raises(ConfigurationError):
-        service.invoke(
-            "query",
-            actor=_actor(),
-            request_id="request-1",
+        asyncio.run(
+            service.ainvoke(
+                "query",
+                actor=_actor(),
+                request_id="request-1",
+            )
         )
 
 
 def test_agent_service_wraps_upstream_error(monkeypatch) -> None:
     agent = Mock()
-    agent.invoke.side_effect = RuntimeError("secret upstream detail")
-    service = AgentService(agent=agent)
+    agent.ainvoke = AsyncMock(
+        side_effect=RuntimeError("secret upstream detail")
+    )
+    service = AgentService(
+        agent=agent,
+        lease_manager=_AllowLeaseManager(),
+    )
 
     with pytest.raises(
         AgentInvocationError, match="Agent upstream request failed"
     ):
-        service.invoke(
-            "query",
-            actor=_actor(),
-            request_id="request-2",
+        asyncio.run(
+            service.ainvoke(
+                "query",
+                actor=_actor(),
+                request_id="request-2",
+            )
         )
 
 
@@ -175,8 +243,10 @@ def test_query_maps_configuration_error_to_stable_non_2xx(
     server = importlib.import_module("data_agent.agent_server")
     monkeypatch.setattr(
         server.global_agent_service,
-        "invoke",
-        Mock(side_effect=ConfigurationError("MOONSHOT_API_KEY missing")),
+        "ainvoke",
+        AsyncMock(
+            side_effect=ConfigurationError("MOONSHOT_API_KEY missing")
+        ),
     )
 
     with pytest.raises(HTTPException) as caught:
@@ -196,8 +266,8 @@ def test_query_maps_upstream_error_to_stable_non_2xx(monkeypatch) -> None:
     server = importlib.import_module("data_agent.agent_server")
     monkeypatch.setattr(
         server.global_agent_service,
-        "invoke",
-        Mock(side_effect=AgentInvocationError("private detail")),
+        "ainvoke",
+        AsyncMock(side_effect=AgentInvocationError("private detail")),
     )
 
     with pytest.raises(HTTPException) as caught:

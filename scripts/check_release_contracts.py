@@ -30,6 +30,15 @@ MANAGED_FILE_MODEL_PATH = "data_agent/models/managed_file.py"
 MANAGED_FILE_ROUTE_PATH = "data_agent/routes/managed_file.py"
 MANAGED_FILE_SERVICE_PATH = "data_agent/services/managed_file_service.py"
 DOCUMENT_TOOL_PATH = "data_agent/tools/document_analysis.py"
+AGENT_CONFIG_PATH = "data_agent/config/config.py"
+AGENT_SERVICE_PATH = "data_agent/services/agent_service.py"
+SEARCH_TOOL_PATH = "data_agent/tools/search.py"
+TOOL_MANAGER_PATH = "data_agent/tools/tool_manager.py"
+AGENT_SERVER_PATH = "data_agent/agent_server.py"
+READINESS_PATH = "data_agent/readiness.py"
+CODE_EXECUTION_TOOL_PATH = "data_agent/tools/code_execution.py"
+RELEASE_WORKFLOW_PATH = ".github/workflows/release-readiness.yml"
+CONTAINER_SMOKE_PATH = "scripts/verify_container_smoke.py"
 FRONTEND_FILE_CLIENT_PATH = (
     "agent_chatui/src/lib/managed-file-client.ts"
 )
@@ -51,6 +60,14 @@ REQUIRED_STRUCTURE_FILES = {
     MANAGED_FILE_ROUTE_PATH,
     MANAGED_FILE_SERVICE_PATH,
     DOCUMENT_TOOL_PATH,
+    AGENT_CONFIG_PATH,
+    AGENT_SERVICE_PATH,
+    SEARCH_TOOL_PATH,
+    TOOL_MANAGER_PATH,
+    AGENT_SERVER_PATH,
+    READINESS_PATH,
+    RELEASE_WORKFLOW_PATH,
+    CONTAINER_SMOKE_PATH,
     FRONTEND_FILE_CLIENT_PATH,
     FRONTEND_FILE_HOOK_PATH,
 }
@@ -126,6 +143,70 @@ FILE_INGESTION_DEFAULTS = {
     "FILE_ANALYSIS_MAX_CHARS": "20000",
     "COMPOSE_FILE_STORAGE_ROOT": "/data/managed-files",
 }
+AGENT_RESOURCE_DEFAULTS = {
+    "MODEL_REQUEST_TIMEOUT_SECONDS": "45",
+    "MODEL_MAX_RETRIES": "1",
+    "MODEL_MAX_OUTPUT_TOKENS": "4096",
+    "AGENT_QUERY_MAX_CHARS": "8000",
+    "AGENT_RESPONSE_MAX_CHARS": "32000",
+    "AGENT_RUN_TIMEOUT_SECONDS": "60",
+    "AGENT_RECURSION_LIMIT": "25",
+    "AGENT_MODEL_CALL_LIMIT": "8",
+    "AGENT_TOOL_CALL_LIMIT": "12",
+    "AGENT_GLOBAL_CONCURRENCY_LIMIT": "4",
+    "AGENT_USER_CONCURRENCY_LIMIT": "1",
+    "AGENT_CONCURRENCY_WAIT_SECONDS": "1",
+    "AGENT_CONCURRENCY_LEASE_TTL_SECONDS": "75",
+    "SEARCH_QUERY_MAX_CHARS": "2000",
+    "SEARCH_MAX_RESULTS": "5",
+    "SEARCH_TIMEOUT_SECONDS": "15",
+    "SEARCH_MAX_OUTPUT_BYTES": "65536",
+    "REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS": "1",
+    "REDIS_RECOVERY_MAX_BACKOFF_SECONDS": "30",
+    "REDIS_RECOVERY_JITTER_RATIO": "0.2",
+}
+AGENT_RESOURCE_SOURCE_MARKERS = {
+    AGENT_CONFIG_PATH: tuple(
+        f'"{name}", {value}'
+        for name, value in AGENT_RESOURCE_DEFAULTS.items()
+    ),
+    AGENT_SERVICE_PATH: (
+        "ModelCallLimitMiddleware",
+        "ToolCallLimitMiddleware",
+        "run_limit=config.AGENT_MODEL_CALL_LIMIT",
+        "run_limit=config.AGENT_TOOL_CALL_LIMIT",
+        'exit_behavior="error"',
+        "bounded[\"recursion_limit\"] = config.AGENT_RECURSION_LIMIT",
+        "timeout=config.MODEL_REQUEST_TIMEOUT_SECONDS",
+        "max_retries=config.MODEL_MAX_RETRIES",
+        "max_tokens=config.MODEL_MAX_OUTPUT_TOKENS",
+    ),
+    SEARCH_TOOL_PATH: (
+        "AsyncTavilyClient",
+        "async def internet_search",
+        'Literal["general", "news"]',
+        "max_length=2000",
+        "le=5",
+        "asyncio.timeout(config.SEARCH_TIMEOUT_SECONDS)",
+        "include_raw_content=False",
+        "config.SEARCH_MAX_OUTPUT_BYTES",
+    ),
+    TOOL_MANAGER_PATH: (
+        '"internet_search"',
+        '"analyze_document"',
+    ),
+}
+CODE_EXECUTION_FORBIDDEN_PATHS = (
+    ENV_EXAMPLE_PATH,
+    COMPOSE_PATH,
+    AGENT_CONFIG_PATH,
+    AGENT_SERVICE_PATH,
+    TOOL_MANAGER_PATH,
+    RELEASE_WORKFLOW_PATH,
+)
+CODE_EXECUTION_PATTERN = re.compile(
+    r"\b(?:ENABLE_CODE_EXECUTION|execute_python_code)\b"
+)
 
 BUILD_BYPASS_PATTERN = re.compile(
     r"\b(?:ignoreBuildErrors|ignoreDuringBuilds)\b"
@@ -835,6 +916,18 @@ def _check_env_example(
                 )
             )
 
+    for name, expected in AGENT_RESOURCE_DEFAULTS.items():
+        values = assignments.get(name, [])
+        if len(values) != 1 or values[0][0] != expected:
+            line = values[0][1] if values else 1
+            violations.append(
+                Violation(
+                    "AGENT_RESOURCE_ENV_DEFAULT",
+                    ENV_EXAMPLE_PATH,
+                    line,
+                )
+            )
+
 
 def _compose_default_host(value: str) -> tuple[str | None, str | None]:
     value = value.strip()
@@ -903,6 +996,130 @@ def _check_compose_logging(
     if text.count("logging: *bounded-logging") < 4:
         violations.append(
             Violation("COMPOSE_LOG_RETENTION", COMPOSE_PATH, 1)
+        )
+
+
+def _check_agent_resource_contracts(
+    root: Path,
+    structure_texts: dict[str, str],
+    scan_texts: dict[str, str],
+    violations: list[Violation],
+) -> None:
+    compose = structure_texts.get(COMPOSE_PATH)
+    if compose is not None:
+        stripped_lines = {
+            line.strip(): line_number
+            for line_number, line in enumerate(
+                compose.splitlines(),
+                start=1,
+            )
+        }
+        for name, expected in AGENT_RESOURCE_DEFAULTS.items():
+            required = f"{name}: ${{{name}:-{expected}}}"
+            if required not in stripped_lines:
+                violations.append(
+                    Violation(
+                        "AGENT_RESOURCE_COMPOSE_DEFAULT",
+                        COMPOSE_PATH,
+                        1,
+                    )
+                )
+
+    for path, markers in AGENT_RESOURCE_SOURCE_MARKERS.items():
+        text = structure_texts.get(path)
+        if text is not None and any(marker not in text for marker in markers):
+            violations.append(
+                Violation("AGENT_RESOURCE_RUNTIME", path, 1)
+            )
+
+    if (root / CODE_EXECUTION_TOOL_PATH).exists():
+        violations.append(
+            Violation(
+                "CODE_EXECUTION_RUNTIME_REMOVED",
+                CODE_EXECUTION_TOOL_PATH,
+                1,
+            )
+        )
+    for path in CODE_EXECUTION_FORBIDDEN_PATHS:
+        text = structure_texts.get(path) or scan_texts.get(path)
+        if text is None:
+            continue
+        for line in _line_matches(text, CODE_EXECUTION_PATTERN):
+            violations.append(
+                Violation(
+                    "CODE_EXECUTION_RUNTIME_REMOVED",
+                    path,
+                    line,
+                )
+            )
+
+
+def _check_readiness_contracts(
+    structure_texts: dict[str, str],
+    violations: list[Violation],
+) -> None:
+    required_markers = {
+        AGENT_SERVER_PATH: (
+            '@app.get("/api/live")',
+            '@app.get("/api/health")',
+            '@app.get("/api/ready")',
+            "check_readiness_async",
+        ),
+        READINESS_PATH: (
+            "config.require_model_api_key()",
+            'text("SELECT 1")',
+            "ScriptDirectory.from_config",
+            "MigrationContext.configure",
+            "client.ping()",
+            "_storage_root(create=True)",
+            "anyio.to_thread.run_sync(check_readiness)",
+        ),
+        CONTAINER_SMOKE_PATH: (
+            "/api/live",
+            "/api/ready",
+            "verify_redis_recovery_canary",
+            "AGENT_PROTECTION_UNAVAILABLE",
+            '"stop"',
+            '"start"',
+        ),
+        RELEASE_WORKFLOW_PATH: (
+            "redis-canary",
+            "Verify Redis stop and recovery",
+        ),
+    }
+    for path, markers in required_markers.items():
+        text = structure_texts.get(path)
+        if text is not None and any(marker not in text for marker in markers):
+            violations.append(
+                Violation("READINESS_RUNTIME", path, 1)
+            )
+
+    readiness = structure_texts.get(READINESS_PATH)
+    forbidden_markers = (
+        "global_agent_service",
+        "ChatOpenAI",
+        "internet_search",
+        "Tavily",
+    )
+    if readiness is not None and any(
+        marker in readiness for marker in forbidden_markers
+    ):
+        violations.append(
+            Violation("READINESS_EXTERNAL_CALL", READINESS_PATH, 1)
+        )
+
+    compose = structure_texts.get(COMPOSE_PATH)
+    compose_markers = (
+        "127.0.0.1:8000/api/ready",
+        "127.0.0.1:2024/info",
+        "python -m data_agent.readiness",
+    )
+    if compose is not None and (
+        any(marker not in compose for marker in compose_markers)
+        or "127.0.0.1:8000/api/health" in compose
+    ):
+        violations.append(
+            Violation("READINESS_COMPOSE_HEALTHCHECK", COMPOSE_PATH, 1)
         )
 
 
@@ -1093,6 +1310,13 @@ def check_repository(
     if compose is not None:
         _check_compose_urls(compose, violations)
         _check_compose_logging(compose, violations)
+    _check_agent_resource_contracts(
+        repository_root,
+        structure_texts,
+        scan_texts,
+        violations,
+    )
+    _check_readiness_contracts(structure_texts, violations)
 
     dockerignore = structure_texts.get(DOCKERIGNORE_PATH)
     if dockerignore is not None:

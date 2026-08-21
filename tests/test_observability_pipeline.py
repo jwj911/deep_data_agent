@@ -3,9 +3,10 @@ import json
 import logging
 import re
 import sys
+from contextlib import asynccontextmanager
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -22,6 +23,12 @@ from data_agent.services.auth_service import get_current_user
 
 VALID_REQUEST_ID = "a" * 32
 OTHER_REQUEST_ID = "b" * 32
+
+
+class _AllowLeaseManager:
+    @asynccontextmanager
+    async def hold_async(self, _subject):
+        yield
 
 
 def _request(method: str, path: str, **kwargs) -> httpx.Response:
@@ -236,8 +243,8 @@ def test_agent_error_response_uses_middleware_request_id(monkeypatch) -> None:
     agent_server.app.dependency_overrides[get_current_user] = lambda: actor
     monkeypatch.setattr(
         agent_server.global_agent_service,
-        "invoke",
-        Mock(side_effect=ConfigurationError("model unavailable")),
+        "ainvoke",
+        AsyncMock(side_effect=ConfigurationError("model unavailable")),
     )
 
     try:
@@ -260,26 +267,31 @@ def test_agent_service_propagates_request_id_to_langgraph(monkeypatch) -> None:
     monkeypatch.setattr(
         "data_agent.services.agent_service.global_cache_service",
         SimpleNamespace(
-            get=lambda key: None,
-            set=lambda key, value, expire: True,
+            aget=AsyncMock(return_value=None),
+            aset=AsyncMock(return_value=True),
         ),
     )
     message = SimpleNamespace(content="answer")
     agent = Mock()
-    agent.invoke.return_value = {"messages": [message]}
-    service = AgentService(agent=agent)
+    agent.ainvoke = AsyncMock(return_value={"messages": [message]})
+    service = AgentService(
+        agent=agent,
+        lease_manager=_AllowLeaseManager(),
+    )
 
     actor = User(id=1, role=UserRole.USER.value)
     assert (
-        service.invoke(
-            "query",
-            actor=actor,
-            request_id=VALID_REQUEST_ID,
+        asyncio.run(
+            service.ainvoke(
+                "query",
+                actor=actor,
+                request_id=VALID_REQUEST_ID,
+            )
         )
         == "answer"
     )
 
-    _, kwargs = agent.invoke.call_args
+    _, kwargs = agent.ainvoke.call_args
     assert kwargs["config"]["configurable"]["request_id"] == VALID_REQUEST_ID
     assert kwargs["config"]["metadata"]["request_id"] == VALID_REQUEST_ID
 

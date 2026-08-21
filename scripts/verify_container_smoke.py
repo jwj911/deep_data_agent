@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,6 +165,15 @@ TENANT_USERS = (
 )
 TENANT_PASSWORD = "container-tenant-test-password"
 MANAGED_FILE_MAX_BYTES = 5 * 1024 * 1024
+READINESS_COMPONENT_CODES = {
+    "model": "model_configuration_invalid",
+    "database": "database_unavailable",
+    "migration": "migration_not_ready",
+    "redis": "redis_unavailable",
+    "managed_files": "managed_file_storage_unavailable",
+}
+REQUEST_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+AGENT_PROTECTION_UNAVAILABLE = "agent_protection_unavailable"
 
 
 class SmokeError(RuntimeError):
@@ -363,27 +374,38 @@ def verify_http_endpoints(
     langgraph_url: str,
     frontend_url: str,
 ) -> None:
+    fastapi_base = _service_base(fastapi_url, "/api/ready")
     endpoints = (
-        ("FastAPI", fastapi_url, True),
-        ("LangGraph", langgraph_url, False),
-        ("Frontend", frontend_url, False),
+        ("FastAPI readiness", fastapi_url, "readiness"),
+        ("FastAPI liveness", f"{fastapi_base}/api/live", "liveness"),
+        (
+            "FastAPI health compatibility",
+            f"{fastapi_base}/api/health",
+            "liveness",
+        ),
+        ("LangGraph", langgraph_url, None),
+        ("Frontend", frontend_url, None),
     )
-    for name, url, require_health_body in endpoints:
+    for name, url, response_contract in endpoints:
         try:
             with request.urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
                 status = response.status
-                body = response.read(4096)
+                body = response.read(65536)
         except (error.URLError, OSError, TimeoutError) as exc:
             raise SmokeError(f"{name} HTTP endpoint is unavailable") from exc
         if status != 200:
             raise SmokeError(f"{name} HTTP endpoint returned non-200")
-        if require_health_body:
+        if response_contract is not None:
             try:
                 payload = json.loads(body)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise SmokeError("FastAPI health response is invalid") from exc
-            if payload != {"status": "healthy"}:
-                raise SmokeError("FastAPI health response is invalid")
+                raise SmokeError(
+                    "FastAPI health response is invalid"
+                ) from exc
+            if response_contract == "readiness":
+                _validate_readiness_payload(payload, unavailable=frozenset())
+            elif payload != {"status": "healthy"}:
+                raise SmokeError("FastAPI liveness response is invalid")
 
 
 def _json_request(
@@ -428,6 +450,60 @@ def _json_request(
         return status, json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SmokeError("tenant HTTP response is invalid") from exc
+
+
+def _validate_readiness_payload(
+    payload: object,
+    *,
+    unavailable: frozenset[str],
+) -> None:
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"status", "request_id", "components"}
+        or payload["status"] != ("not_ready" if unavailable else "ready")
+        or not isinstance(payload["request_id"], str)
+        or REQUEST_ID_PATTERN.fullmatch(payload["request_id"]) is None
+        or not isinstance(payload["components"], dict)
+        or set(payload["components"]) != set(READINESS_COMPONENT_CODES)
+    ):
+        raise SmokeError("FastAPI readiness response is invalid")
+
+    for name, failure_code in READINESS_COMPONENT_CODES.items():
+        component = payload["components"][name]
+        expected = (
+            {"status": "unavailable", "code": failure_code}
+            if name in unavailable
+            else {"status": "ready", "code": "ready"}
+        )
+        if component != expected:
+            raise SmokeError("FastAPI readiness response is invalid")
+
+
+def _wait_for_json_status(
+    method: str,
+    url: str,
+    expected_status: int,
+    *,
+    body: dict[str, object] | None = None,
+    token: str | None = None,
+    timeout_seconds: int = 60,
+) -> object:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            status, payload = _json_request(
+                method,
+                url,
+                body=body,
+                token=token,
+            )
+            if status == expected_status:
+                return payload
+        except SmokeError:
+            pass
+        if time.monotonic() >= deadline:
+            raise SmokeError("HTTP canary did not reach expected status")
+        time.sleep(1)
 
 
 def _multipart_file_request(
@@ -551,6 +627,13 @@ def _register_tenant_user(
         or not isinstance(registered.get("id"), int)
     ):
         raise SmokeError("tenant registration failed")
+    return registered["id"], _login_tenant_user(fastapi_base, username)
+
+
+def _login_tenant_user(
+    fastapi_base: str,
+    username: str,
+) -> str:
     status, login = _json_request(
         "POST",
         f"{fastapi_base}/api/auth/login",
@@ -565,7 +648,92 @@ def _register_tenant_user(
         or not isinstance(login.get("access_token"), str)
     ):
         raise SmokeError("tenant login failed")
-    return registered["id"], login["access_token"]
+    return login["access_token"]
+
+
+def _backend_container_ids(context: ComposeContext) -> frozenset[str]:
+    output = _compose_output(
+        context,
+        "ps",
+        "-q",
+        "fastapi",
+        "langgraph",
+        operation="backend container identity check",
+    )
+    identities = frozenset(
+        line.strip() for line in output.splitlines() if line.strip()
+    )
+    if len(identities) != 2:
+        raise SmokeError("backend container identity check failed")
+    return identities
+
+
+def verify_redis_recovery_canary(
+    context: ComposeContext,
+    *,
+    fastapi_url: str,
+) -> None:
+    """Prove Redis fail-closed and readiness recovery without app restarts."""
+    fastapi_base = _service_base(fastapi_url, "/api/ready")
+    token = _login_tenant_user(fastapi_base, TENANT_USERS[0][0])
+    backend_ids = _backend_container_ids(context)
+    redis_stop_attempted = False
+    try:
+        redis_stop_attempted = True
+        _compose_output(
+            context,
+            "stop",
+            "--timeout",
+            "10",
+            "redis",
+            operation="Redis canary stop",
+        )
+
+        live = _wait_for_json_status(
+            "GET",
+            f"{fastapi_base}/api/live",
+            200,
+        )
+        if live != {"status": "healthy"}:
+            raise SmokeError("FastAPI liveness response is invalid")
+
+        unavailable = _wait_for_json_status(
+            "GET",
+            fastapi_url,
+            503,
+        )
+        _validate_readiness_payload(
+            unavailable,
+            unavailable=frozenset({"redis"}),
+        )
+
+        agent_status = _wait_for_json_status(
+            "POST",
+            f"{fastapi_base}/api/query",
+            503,
+            body={"query": "redis protection canary"},
+            token=token,
+        )
+        if (
+            not isinstance(agent_status, dict)
+            or not isinstance(agent_status.get("detail"), dict)
+            or agent_status["detail"].get("code")
+            != AGENT_PROTECTION_UNAVAILABLE
+        ):
+            raise SmokeError("Agent did not fail closed without Redis")
+    finally:
+        if redis_stop_attempted:
+            _compose_output(
+                context,
+                "start",
+                "redis",
+                operation="Redis canary start",
+            )
+
+    recovered = _wait_for_json_status("GET", fastapi_url, 200)
+    _validate_readiness_payload(recovered, unavailable=frozenset())
+    if _backend_container_ids(context) != backend_ids:
+        raise SmokeError("backend containers restarted during Redis canary")
 
 
 def _thread_ids(payload: object) -> set[str]:
@@ -604,7 +772,7 @@ def verify_tenant_isolation(
     langgraph_url: str,
 ) -> None:
     """Verify two-user Agent isolation without invoking the model."""
-    fastapi_base = _service_base(fastapi_url, "/api/health")
+    fastapi_base = _service_base(fastapi_url, "/api/ready")
     langgraph_base = _service_base(langgraph_url, "/info")
     users = [
         _register_tenant_user(fastapi_base, username, email)
@@ -1097,7 +1265,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument(
         "--fastapi-url",
-        default="http://127.0.0.1:8000/api/health",
+        default="http://127.0.0.1:8000/api/ready",
     )
     verify.add_argument(
         "--langgraph-url",
@@ -1109,6 +1277,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser("seed-head")
     subparsers.add_parser("prepare-legacy")
+    redis_canary = subparsers.add_parser("redis-canary")
+    redis_canary.add_argument(
+        "--fastapi-url",
+        default="http://127.0.0.1:8000/api/ready",
+    )
     subparsers.add_parser("diagnostics")
     return parser
 
@@ -1138,6 +1311,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed_head_canary(context)
         elif args.command == "prepare-legacy":
             prepare_legacy_database(context)
+        elif args.command == "redis-canary":
+            verify_redis_recovery_canary(
+                context,
+                fastapi_url=args.fastapi_url,
+            )
         else:
             print_diagnostics(context)
             return 0

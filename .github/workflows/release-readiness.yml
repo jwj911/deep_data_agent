@@ -147,7 +147,6 @@ jobs:
             printf 'JWT_ACCESS_TOKEN_EXPIRE_MINUTES=5\n'
             printf 'CORS_ALLOWED_ORIGINS=http://localhost:3000\n'
             printf 'RATE_LIMIT_ENABLED=false\n'
-            printf 'ENABLE_CODE_EXECUTION=false\n'
             printf 'NEXT_PUBLIC_API_URL=http://localhost:2024\n'
             printf 'NEXT_PUBLIC_ASSISTANT_ID=agent\n'
             printf 'NEXT_PUBLIC_REST_API_URL=http://localhost:8000\n'
@@ -169,6 +168,16 @@ jobs:
             --env-file "$CI_ENV_FILE" \
             --project-name "$COMPOSE_PROJECT_NAME" \
             verify --scenario empty
+
+      - name: Verify Redis stop and recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s python scripts/verify_container_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            redis-canary
 
       - name: Verify restart at migration head
         shell: bash

@@ -15,7 +15,6 @@ from data_agent.observability.context import bind_request_id
 from data_agent.services.admin_service import AdminService
 from data_agent.services.authorization_service import (
     AuthorizationDeniedError, Permission, ensure_permission)
-from data_agent.tools.tool_manager import ToolManager
 
 TEST_JWT_SECRET = "audit-test-secret-with-at-least-32-characters"
 VALID_REQUEST_ID = "c" * 32
@@ -130,38 +129,19 @@ def test_role_change_audit_is_bounded_and_correlated(
         assert forbidden not in rendered.lower()
 
 
-def test_denied_and_high_risk_events_do_not_include_target_data(
+def test_denied_event_does_not_include_target_data(
     audit_capture,
-    monkeypatch,
 ) -> None:
     actor = User(id=5, role=UserRole.USER.value)
     with bind_request_id(VALID_REQUEST_ID):
         with pytest.raises(AuthorizationDeniedError):
             ensure_permission(actor, Permission.ADMIN_USERS_LIST)
 
-    monkeypatch.setattr(config, "ENABLE_CODE_EXECUTION", True)
-    manager = ToolManager()
-    assert "execute_python_code" in manager.get_tool_names()
-
-    denied, enabled = audit_capture.events()[-2:]
+    denied = audit_capture.events()[-1]
     assert denied["event"] == "authorization.denied"
     assert denied["decision"] == "denied"
     assert denied["permission"] == "admin.users_list"
     assert "target_ref" not in denied
-
-    assert enabled == {
-        "schema_version": "1.0",
-        "timestamp": enabled["timestamp"],
-        "level": "INFO",
-        "service": "deep-data-agent",
-        "logger": "deep_data_agent.audit",
-        "event": "security.high_risk_tool.enabled",
-        "message": "security.high_risk_tool.enabled",
-        "operation": "code_execution.enable",
-        "outcome": "enabled",
-        "actor_kind": "configuration",
-        "tool_name": "execute_python_code",
-    }
 
 
 def test_audit_event_drops_unapproved_fields(audit_capture) -> None:

@@ -33,30 +33,30 @@ Deep Data Agent 是前后端分离的 AI 数据探索项目，当前已完成可
 - `data_agent/`：Python 3.12、FastAPI、LangGraph/DeepAgents、SQLAlchemy。
 - `agent_chatui/`：Next.js 15、React 19、TypeScript、Tailwind CSS 静态前端。
 - MySQL：持久化用户、会话、消息和受管文件 metadata。
-- Redis：缓存 Agent 与搜索结果；不可用时降级为未命中。
+- Redis：承载 Agent/搜索缓存、HTTP 限流和 Agent 并发租约；按调用面执行
+  fail-open/fail-closed，并在退避后自动恢复。
 - Docker Compose：编排 5 个服务，并让 FastAPI/LangGraph 共享受管文件卷。
 
-仓库现有 10 个已完成 change-id；最近完成本地与 Hosted 验收的是
-`.trae/specs/isolate-file-ingestion/`，以 owner 受管 UUID 文件替代任意服务器
-路径与浏览器 Base64 摄取。implementation SHA
-`9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 run `32008059164` 已成功。
+仓库现有 11 个已完成或本地完成的 change-id；当前
+`.trae/specs/bound-agent-resource-use/` 已完成本地实现与验证，远端验证待提交后
+执行。该 change-id 为 Agent、模型和工具增加预算，建立 Redis 自动恢复与分级保护，
+拆分 liveness/readiness，并永久移除运行时任意 Python 执行能力。
 
 2026-08-12 项目整体审计以 `f6cf4e65d8b15114fc164fd6921bd65d6ad27862` 为基线，
 历史识别 18 个 2/2 高置信度问题（4 P0 / 3 P1 / 10 P2 / 1 P3）。当前工作树已关闭
 `AUD-014`、`AUD-011`、`AUD-015`、`AUD-001`、`AUD-003`、`AUD-002`、`AUD-005`，
-仍开放 11 项（0 P0 / 3 P1 / 7 P2 / 1 P3），
-生产发布判断仍为 NO-GO；`AUD-006`、`AUD-007` 等边界不因本轮容器证据而关闭。
-Roadmap 现有 9 个未启动候选，下一候选继续按风险驱动排序。
+`AUD-004`、`AUD-008`、`AUD-009`；仍开放
+8 项（0 P0 / 1 P1 / 6 P2 / 1 P3）。生产发布判断仍为 NO-GO；剩余 P1
+`AUD-007` 及 `AUD-006` 等 P2/P3 不因本轮资源治理证据而关闭。Roadmap 现有
+8 个候选，下一候选是 `prove-data-recovery`。
 
-本轮本地证据为 Python 3.12.9 下 295 项测试、迁移定向测试 8 项；Node.js
-22.22.2、pnpm 10.5.1 下 typecheck、零警告 lint、format:check、build 全部通过，
-构建已移除 Google Fonts 网络依赖。当前源码镜像的空库双用户受管文件、head 重启
-和 legacy 升级均通过；无凭据 Chromium mock 验证附件预览/删除。过程未调用外部
-模型/搜索或发送业务查询，容器、网络、卷、临时配置和生成物已完整清理。
-
-本轮 Hosted 证据为上述 SHA 的 Backend、Frontend、Release Contracts、Container
-Smoke 四个 Job 均为 `success`；Container Smoke 的空库双用户、head 重启、
-legacy 升级和 cleanup 均为 `success`。
+本轮本地证据为 Python 3.12.9 全量 452 项测试、迁移定向测试 8 项和 release
+contract pytest 159 项；isort、发布契约脚本、Alembic 唯一 head、Compose 与
+差异检查通过。Node.js 22.22.2、pnpm 10.5.1 下 typecheck、零警告 lint、
+format:check、build 全部通过。Docker Engine 29.4.1、Docker Desktop 4.71.0、
+Compose 5.1.3 下 empty/head/legacy 与 Redis canary 全部通过；模型/搜索调用为 0，
+容器、网络、卷、临时配置和生成物已清理。本 change-id 尚未提交，不存在可记录的
+当前实现提交或远端运行证据。
 
 ## 3. 关键结构
 
@@ -113,8 +113,10 @@ deep_data_agent/
   当前角色，但不负责建表。
 - `data_agent.agent_server:app` 是 FastAPI ASGI 入口，数据库初始化只发生在应用
   生命周期。
-- `/api/health` 不触发模型调用；`/api/query` 要求 `agent.invoke_own`，并将配置
-  错误和上游错误映射为稳定的非 2xx 响应。
+- `/api/live` 与兼容 `/api/health` 只证明进程可响应；`/api/ready` 浅检查模型
+  配置、MySQL、唯一 Alembic head、Redis 与受管文件根，不调用模型或搜索。
+- `/api/query` 要求 `agent.invoke_own`，并将输入、并发、保护、预算、timeout、
+  输出、配置和上游错误映射为稳定的非 2xx 响应。
 - `data_agent/routes/auth.py` 提供注册、登录和 `/me`；
   `data_agent/routes/session.py` 提供受保护的会话与消息接口。
 - `data_agent/routes/admin.py` 提供受 RBAC 保护的用户列表和他人角色变更接口；
@@ -149,8 +151,16 @@ deep_data_agent/
 | `MOONSHOT_API_KEY` | 模型调用 | 示例占位值无效；不得提交 |
 | `TAVILY_API_KEY` | 互联网搜索 | 仅搜索工具需要；不得提交 |
 | `MODEL_NAME`、`MODEL_BASE_URL`、`MODEL_TEMPERATURE` | 模型配置 | 与提供方契约一致 |
+| `MODEL_REQUEST_TIMEOUT_SECONDS`、`MODEL_MAX_RETRIES`、`MODEL_MAX_OUTPUT_TOKENS` | 单次模型预算 | 默认 45 秒 / 1 次 / 4,096 tokens，只允许收紧固定上限 |
+| `AGENT_QUERY_MAX_CHARS`、`AGENT_RESPONSE_MAX_CHARS` | FastAPI 输入/输出预算 | 默认 8,000 / 32,000 个字符 |
+| `AGENT_RUN_TIMEOUT_SECONDS`、`AGENT_RECURSION_LIMIT` | run 总 deadline 与递归 | 默认 60 秒 / 25 层 |
+| `AGENT_MODEL_CALL_LIMIT`、`AGENT_TOOL_CALL_LIMIT` | 每 run 调用预算 | 默认 8 次 / 12 次 |
+| `AGENT_GLOBAL_CONCURRENCY_LIMIT`、`AGENT_USER_CONCURRENCY_LIMIT` | Redis 双层租约 | 默认全局 4 / 单用户 1 |
+| `AGENT_CONCURRENCY_WAIT_SECONDS`、`AGENT_CONCURRENCY_LEASE_TTL_SECONDS` | 租约等待与回收 | 默认 1 秒 / 75 秒，TTL 必须大于 run deadline |
+| `SEARCH_*` | 搜索 query、结果数、timeout 与输出预算 | 默认 2,000 字符 / 5 条 / 15 秒 / 64 KiB，只允许 general/news |
 | `DATABASE_URL` | 宿主机数据库 | 默认使用 PyMySQL URL |
-| `REDIS_URL` | 宿主机缓存 | 不可用时允许降级 |
+| `REDIS_URL` | 宿主机 Redis | 缓存/低成本限流 fail-open；query/Agent/readiness fail-closed |
+| `REDIS_RECOVERY_*` | Redis 恢复退避与抖动 | 初始 1 秒、最大 30 秒、抖动比例 `0.2` |
 | `FILE_STORAGE_ROOT` | 宿主机受管文件根 | 默认 `var/managed_files`；不得作为 API 输入 |
 | `FILE_UPLOAD_MAX_BYTES`、`FILE_UPLOAD_BATCH_MAX_BYTES`、`FILE_UPLOAD_REQUEST_MAX_BYTES` | 文件、批次、请求体上限 | 默认 5 MiB / 10 MiB / 11 MiB，正整数且单调 |
 | `FILE_UPLOAD_BATCH_MAX_COUNT`、`FILE_USER_MAX_COUNT`、`FILE_USER_QUOTA_BYTES` | 批次与用户配额 | 默认 5 个 / 100 个 / 100 MiB |
@@ -161,7 +171,6 @@ deep_data_agent/
 | `RATE_LIMIT_ENABLED` | 请求限流总开关 | 默认 `true`，设 `false` 关闭且不调用 Redis |
 | `TRUSTED_PROXY_COUNT` | 可信反向代理跳数 | 非负整数，默认 `0` 不信任 `X-Forwarded-For` |
 | `RATE_LIMIT_*_MAX_REQUESTS`、`RATE_LIMIT_*_WINDOW_SECONDS` | 认证、查询、会话、默认四类配额与窗口 | 正整数、有界；四类计数隔离 |
-| `ENABLE_CODE_EXECUTION` | 任意 Python 执行开关 | 默认 `false`，仅受控环境人工启用 |
 | `SERVICE_NAME`、`LOG_LEVEL` | 结构化事件来源与级别 | 服务名保持低基数 |
 | `LOG_FILE_PATH`、`LOG_MAX_BYTES`、`LOG_BACKUP_COUNT` | 本地日志轮转 | 大小与备份数必须为正整数 |
 | `DOCKER_LOG_MAX_SIZE`、`DOCKER_LOG_MAX_FILES` | 容器日志轮转 | 保持有界默认值 |
@@ -181,7 +190,11 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m pytest
+python -m pytest -q tests/test_migrations.py
+python -m pytest -q tests/test_release_contracts.py
 python -m isort --check-only data_agent tests scripts
+python scripts/check_release_contracts.py
+python -m alembic -c alembic.ini heads
 python -m uvicorn data_agent.agent_server:app --host 0.0.0.0 --port 8000
 langgraph dev --host 0.0.0.0 --port 2024 --no-browser --allow-blocking
 python scripts/export_diagnostics.py --input deep_data_agent.log --output diagnostic-report.json
@@ -237,7 +250,13 @@ Moonshot 或 Tavily。
   owner、过期、路径/符号链接/普通文件、大小/哈希漂移和脱敏事件。
 - 容器双用户上传/列表/分析/删除、FastAPI/LangGraph 共享卷、跨用户/管理员拒绝、
   恶意 JSON、超限文件和无 Base64 新上传。
-- 缺失模型配置、Redis 降级、代码执行开关和 Agent 错误映射。
+- Agent 输入/输出、deadline、取消、递归、模型/工具调用和双层并发租约；失败时
+  缓存无副作用并返回稳定错误码。
+- 搜索 query/topic/结果数/timeout/输出边界、缺失配置、raw/media 移除及受管文档
+  20,000 字符上限。
+- Redis 断开、连续失败、退避、单飞、恢复、再次故障及 fail-open/fail-closed
+  策略矩阵；代码执行残留变量无效。
+- `/api/live`、兼容 `/api/health`、`/api/ready` 组件故障/恢复与响应脱敏。
 - JWT 配置、注册、登录、`/me`、Token 异常和 CORS。
 - 双用户会话读写删隔离及输入校验无部分写入。
 - 固定角色矩阵、路由/服务双层授权、管理员分页与角色变更、人工引导和 HMAC
@@ -254,10 +273,11 @@ Moonshot 或 Tavily。
 head 唯一性 `MIGRATION_HEAD`）、当前源码镜像重建及五服务双用户冒烟。没有 Docker
 运行证据时，不得声称容器验收通过。
 
-2026-08-17 的当前工作树已取得 Python 3.12.9 共 295 项测试、8 项迁移定向测试、
-Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无凭据 Chromium
-交互证据。implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85`
-的 Hosted 四个 Job 已在 run `32008059164` 验证成功。
+2026-08-21 的当前工作树已取得 Python 3.12.9 全量 452 项测试、8 项迁移定向
+测试、159 项 release contract pytest，Node.js 22.22.2 与 pnpm 10.5.1 前端
+四门禁，以及 Docker Engine 29.4.1 / Desktop 4.71.0 / Compose 5.1.3 下
+empty、head、legacy 和 Redis canary 本地证据。当前 change-id 远端验证待提交后
+执行，不得把既有 change-id 的 Hosted 结果外推到本轮。
 
 ## 7. 安全现状
 
@@ -275,10 +295,16 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
 - CORS 使用明确白名单，启用凭据时不允许通配符。
 - 会话和消息在服务层同时按 `session_id` 与 `user_id` 过滤；越权统一返回 404。
 - 第一方 Token 使用 `sessionStorage`，不写 URL、日志或错误提示。
-- 代码执行默认关闭；配置和日志具有占位值识别与敏感值脱敏边界。
+- 任意 Python 执行工具已从运行时、配置、Compose、提示和注册路径移除；残留环境
+  变量不会恢复该能力。
+- FastAPI 与 LangGraph Agent 共用服务端递归、模型/工具调用、deadline 和 Redis
+  双层并发预算；管理员及客户端 config/context 不能扩大。
 - 日志使用固定结构化字段和有界轮转；诊断导出只读、人工触发且不自动外发。
 - 按身份维度的请求限流：FastAPI 层用 Redis 固定窗口对认证、查询、会话与默认四类
-  计数，Redis 故障时 fail-open 放行并记录脱敏降级事件，配额键仅用不可逆摘要。
+  计数；Redis 故障时 auth/session/default fail-open，query fail-closed，均记录
+  脱敏保护状态。缓存 fail-open，Agent 租约和 readiness fail-closed。
+- Redis 客户端按 1..30 秒单飞指数退避自动恢复；`/api/live` 与 `/api/ready`
+  分离，Compose 不再以无条件 liveness 作为就绪证据。
 - 用户角色固定为 `user`/`admin` 且默认 `user`；管理员接口执行路由与服务双层
   授权，首位管理员只允许按用户 ID 人工引导，管理与拒绝事件只记录 HMAC 身份引用。
 
@@ -289,7 +315,8 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
 - 已加入按身份维度的请求限流与固定角色 RBAC，但仍无分布式令牌桶、自动封禁、
   Refresh Token、密码找回、邮箱验证、OAuth、自定义角色或管理员前端。
 - 管理审计复用有界本地结构化日志，不是不可变长期审计数据库，也未接入外部 SIEM。
-- 任意 Python 执行显式开启后仍无沙箱；受管文件卷没有备份、加密或跨实例共享。
+- 受管文件卷没有备份、加密或跨实例共享；MySQL/Redis 也未完成自动备份和恢复
+  演练，下一候选 `prove-data-recovery` 处理该 P1 边界。
 - 当前不支持 PDF、Office、压缩包、图片、OCR 或病毒扫描；只接受受管文本格式。
 - 数据库已引入 Alembic 版本化迁移，`init_db` 改为迁移驱动，旧库首次启动 stamp
   到基线兼容；但仍无自动数据备份与回滚演练流程。
@@ -303,8 +330,8 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
 - 本机默认 Node.js 25.2.1 超出支持的 22.x 范围；本轮通过临时 PATH 使用
   Node.js 22.22.2 与 pnpm 10.5.1 取得本地前端发布证据。
 - LangGraph 已使用第一方自定义 Auth，但日志与诊断报告仍不能作为授权或审计替代品。
-- 请求限流为单实例本地 Redis 固定窗口，非全局分布式速率控制；无令牌桶、自动
-  封禁或跨实例配额共享，Redis 故障时 fail-open。
+- 请求限流为 Redis 固定窗口，非令牌桶或自动封禁系统；低成本 scope 在 Redis
+  故障时按既定策略 fail-open，高成本 query 与 Agent 保护 fail-closed。
 - 管理员角色只增加用户列表和他人角色变更能力，不允许跨用户读取、写入或删除
   会话；前端返回的角色字段不能作为授权依据。
 
@@ -313,7 +340,8 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
 - `README.md`：本地开发、配置、Docker 和验证命令。
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、问题清单、
   证据边界与发布判断。
-- `.trae/documents/roadmap.md`：10 个已完成 change-id 和 9 个未启动候选迭代。
+- `.trae/documents/roadmap.md`：11 个已完成或本地完成的 change-id 和 8 个候选
+  迭代；`bound-agent-resource-use` 远端待验证。
 - `CHANGELOG.md`：版本化行为变化、验证证据和已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/establish-runnable-baseline/`：可运行闭环规格。
@@ -329,3 +357,5 @@ Node.js 22.22.2 与 pnpm 10.5.1 前端四门禁、本地 Docker 三场景和无�
   Agent 第一方身份与租户边界规格。
 - `.trae/specs/isolate-file-ingestion/`：已完成本地与 Hosted 验收的 owner 受管
   文件与安全摄取规格。
+- `.trae/specs/bound-agent-resource-use/`：已完成本地验证、远端待验证的 Agent
+  预算、Redis 恢复、健康语义与代码执行移除规格。

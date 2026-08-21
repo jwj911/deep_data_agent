@@ -1,6 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -42,6 +43,27 @@ def _result(
         stdout=stdout,
         stderr=stderr,
     )
+
+
+def _readiness_payload(*unavailable: str) -> dict[str, object]:
+    unavailable_set = set(unavailable)
+    return {
+        "status": "not_ready" if unavailable_set else "ready",
+        "request_id": "a" * 32,
+        "components": {
+            name: (
+                {
+                    "status": "unavailable",
+                    "code": failure_code,
+                }
+                if name in unavailable_set
+                else {"status": "ready", "code": "ready"}
+            )
+            for name, failure_code in (
+                smoke.READINESS_COMPONENT_CODES.items()
+            )
+        },
+    }
 
 
 def test_compose_context_preserves_multiple_file_order(tmp_path):
@@ -166,7 +188,7 @@ def test_verify_services_rejects_incomplete_or_unhealthy_topology(
         smoke.verify_services(_context(tmp_path))
 
 
-def test_verify_http_endpoints_checks_all_three_non_business_routes(
+def test_verify_http_endpoints_checks_all_non_business_routes(
     monkeypatch,
 ):
     calls = []
@@ -183,23 +205,36 @@ def test_verify_http_endpoints_checks_all_three_non_business_routes(
             return None
 
         def read(self, limit):
-            assert limit == 4096
+            assert limit == 65536
             return self.body
 
     def fake_urlopen(url, timeout):
         calls.append((url, timeout))
-        body = b'{"status":"healthy"}' if url.endswith("/api/health") else b"ok"
+        if url.endswith("/api/ready"):
+            body = json.dumps(_readiness_payload()).encode()
+        elif url.endswith(("/api/live", "/api/health")):
+            body = b'{"status":"healthy"}'
+        else:
+            body = b"ok"
         return Response(body)
 
     monkeypatch.setattr(smoke.request, "urlopen", fake_urlopen)
 
     smoke.verify_http_endpoints(
-        "http://127.0.0.1:8000/api/health",
+        "http://127.0.0.1:8000/api/ready",
         "http://127.0.0.1:2024/info",
         "http://127.0.0.1:3000/data_copilot/",
     )
 
     assert calls == [
+        (
+            "http://127.0.0.1:8000/api/ready",
+            smoke.HTTP_TIMEOUT_SECONDS,
+        ),
+        (
+            "http://127.0.0.1:8000/api/live",
+            smoke.HTTP_TIMEOUT_SECONDS,
+        ),
         (
             "http://127.0.0.1:8000/api/health",
             smoke.HTTP_TIMEOUT_SECONDS,
@@ -209,6 +244,111 @@ def test_verify_http_endpoints_checks_all_three_non_business_routes(
             "http://127.0.0.1:3000/data_copilot/",
             smoke.HTTP_TIMEOUT_SECONDS,
         ),
+    ]
+
+
+def test_redis_canary_checks_fail_closed_and_recovers_without_restart(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    context = _context(tmp_path)
+    compose_calls = []
+    wait_calls = []
+    backend_ids = frozenset({"fastapi-id", "langgraph-id"})
+    identity_check = Mock(side_effect=[backend_ids, backend_ids])
+
+    monkeypatch.setattr(
+        smoke,
+        "_login_tenant_user",
+        Mock(return_value="canary-token"),
+    )
+    monkeypatch.setattr(smoke, "_backend_container_ids", identity_check)
+
+    def fake_compose(context, *arguments, **kwargs):
+        compose_calls.append((arguments, kwargs["operation"]))
+        return ""
+
+    def fake_wait(method, url, expected_status, **kwargs):
+        wait_calls.append((method, url, expected_status, kwargs))
+        if url.endswith("/api/live"):
+            return {"status": "healthy"}
+        if url.endswith("/api/query"):
+            return {
+                "detail": {
+                    "code": smoke.AGENT_PROTECTION_UNAVAILABLE,
+                }
+            }
+        if expected_status == 503:
+            return _readiness_payload("redis")
+        return _readiness_payload()
+
+    monkeypatch.setattr(smoke, "_compose_output", fake_compose)
+    monkeypatch.setattr(smoke, "_wait_for_json_status", fake_wait)
+
+    smoke.verify_redis_recovery_canary(
+        context,
+        fastapi_url="http://127.0.0.1:8000/api/ready",
+    )
+
+    assert compose_calls == [
+        (
+            ("stop", "--timeout", "10", "redis"),
+            "Redis canary stop",
+        ),
+        (("start", "redis"), "Redis canary start"),
+    ]
+    assert [call[2] for call in wait_calls] == [200, 503, 503, 200]
+    agent_call = wait_calls[2]
+    assert agent_call[0:3] == (
+        "POST",
+        "http://127.0.0.1:8000/api/query",
+        503,
+    )
+    assert agent_call[3] == {
+        "body": {"query": "redis protection canary"},
+        "token": "canary-token",
+    }
+    assert identity_check.call_count == 2
+
+
+def test_redis_canary_restarts_redis_after_failed_check(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    compose_calls = []
+    monkeypatch.setattr(
+        smoke,
+        "_login_tenant_user",
+        Mock(return_value="canary-token"),
+    )
+    monkeypatch.setattr(
+        smoke,
+        "_backend_container_ids",
+        Mock(return_value=frozenset({"fastapi-id", "langgraph-id"})),
+    )
+    monkeypatch.setattr(
+        smoke,
+        "_compose_output",
+        lambda context, *arguments, **kwargs: compose_calls.append(
+            arguments
+        )
+        or "",
+    )
+    monkeypatch.setattr(
+        smoke,
+        "_wait_for_json_status",
+        Mock(side_effect=smoke.SmokeError("fixed failure")),
+    )
+
+    with pytest.raises(smoke.SmokeError, match="fixed failure"):
+        smoke.verify_redis_recovery_canary(
+            _context(tmp_path),
+            fastapi_url="http://127.0.0.1:8000/api/ready",
+        )
+
+    assert compose_calls == [
+        ("stop", "--timeout", "10", "redis"),
+        ("start", "redis"),
     ]
 
 
@@ -327,7 +467,7 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
 
     smoke.verify_tenant_isolation(
         _context(tmp_path),
-        fastapi_url="http://127.0.0.1:8000/api/health",
+        fastapi_url="http://127.0.0.1:8000/api/ready",
         langgraph_url="http://127.0.0.1:2024/info",
     )
 

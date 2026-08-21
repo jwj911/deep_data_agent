@@ -1,6 +1,7 @@
 import os
 
 import redis
+import redis.asyncio as async_redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 os.environ["DATABASE_URL"] = "sqlite://"
@@ -20,9 +21,19 @@ class _OfflineRedis:
         raise RedisConnectionError("Redis disabled in tests")
 
 
+class _AsyncOfflineRedis:
+    async def ping(self) -> None:
+        raise RedisConnectionError("Redis disabled in tests")
+
+
 def _offline_redis_from_url(*args, **kwargs) -> _OfflineRedis:
     return _OfflineRedis()
 
 
+def _async_offline_redis_from_url(*args, **kwargs) -> _AsyncOfflineRedis:
+    return _AsyncOfflineRedis()
+
+
 # Prevent import-time cache initialization from contacting any Redis instance.
 redis.Redis.from_url = staticmethod(_offline_redis_from_url)
+async_redis.Redis.from_url = staticmethod(_async_offline_redis_from_url)

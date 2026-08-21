@@ -18,6 +18,15 @@ _PLACEHOLDER_VALUES = {
 }
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
+_MODEL_REQUEST_TIMEOUT_MAX_SECONDS = 45
+_MODEL_MAX_RETRIES_LIMIT = 1
+_MODEL_MAX_OUTPUT_TOKENS_LIMIT = 4096
+_SEARCH_QUERY_MAX_CHARS_LIMIT = 2000
+_SEARCH_MAX_RESULTS_LIMIT = 5
+_SEARCH_TIMEOUT_MAX_SECONDS = 15
+_SEARCH_MAX_OUTPUT_BYTES_LIMIT = 64 * 1024
+_FILE_ANALYSIS_MAX_CHARS_LIMIT = 20000
+_REDIS_RECOVERY_MAX_BACKOFF_LIMIT_SECONDS = 30
 
 
 def _optional_env(name: str) -> str | None:
@@ -70,6 +79,13 @@ def _env_float(name: str, default: float) -> float:
         raise ConfigurationError(f"{name} must be a number") from exc
 
 
+def _env_positive_float(name: str, default: float) -> float:
+    value = _env_float(name, default)
+    if value <= 0:
+        raise ConfigurationError(f"{name} must be a positive number")
+    return value
+
+
 def _env_origins(name: str, default: str) -> tuple[str, ...]:
     raw_value = os.environ.get(name, default)
     origins = tuple(
@@ -106,6 +122,59 @@ class Config:
             "MODEL_BASE_URL", "https://api.moonshot.cn/v1"
         ).strip()
         self.MODEL_TEMPERATURE = _env_float("MODEL_TEMPERATURE", 0.3)
+        self.MODEL_REQUEST_TIMEOUT_SECONDS = _env_positive_int(
+            "MODEL_REQUEST_TIMEOUT_SECONDS", 45
+        )
+        self.MODEL_MAX_RETRIES = _env_positive_int(
+            "MODEL_MAX_RETRIES", 1
+        )
+        self.MODEL_MAX_OUTPUT_TOKENS = _env_positive_int(
+            "MODEL_MAX_OUTPUT_TOKENS", 4096
+        )
+
+        self.AGENT_QUERY_MAX_CHARS = _env_positive_int(
+            "AGENT_QUERY_MAX_CHARS", 8000
+        )
+        self.AGENT_RESPONSE_MAX_CHARS = _env_positive_int(
+            "AGENT_RESPONSE_MAX_CHARS", 32000
+        )
+        self.AGENT_RUN_TIMEOUT_SECONDS = _env_positive_int(
+            "AGENT_RUN_TIMEOUT_SECONDS", 60
+        )
+        self.AGENT_RECURSION_LIMIT = _env_positive_int(
+            "AGENT_RECURSION_LIMIT", 25
+        )
+        self.AGENT_MODEL_CALL_LIMIT = _env_positive_int(
+            "AGENT_MODEL_CALL_LIMIT", 8
+        )
+        self.AGENT_TOOL_CALL_LIMIT = _env_positive_int(
+            "AGENT_TOOL_CALL_LIMIT", 12
+        )
+        self.AGENT_GLOBAL_CONCURRENCY_LIMIT = _env_positive_int(
+            "AGENT_GLOBAL_CONCURRENCY_LIMIT", 4
+        )
+        self.AGENT_USER_CONCURRENCY_LIMIT = _env_positive_int(
+            "AGENT_USER_CONCURRENCY_LIMIT", 1
+        )
+        self.AGENT_CONCURRENCY_WAIT_SECONDS = _env_positive_int(
+            "AGENT_CONCURRENCY_WAIT_SECONDS", 1
+        )
+        self.AGENT_CONCURRENCY_LEASE_TTL_SECONDS = _env_positive_int(
+            "AGENT_CONCURRENCY_LEASE_TTL_SECONDS", 75
+        )
+
+        self.SEARCH_QUERY_MAX_CHARS = _env_positive_int(
+            "SEARCH_QUERY_MAX_CHARS", 2000
+        )
+        self.SEARCH_MAX_RESULTS = _env_positive_int(
+            "SEARCH_MAX_RESULTS", 5
+        )
+        self.SEARCH_TIMEOUT_SECONDS = _env_positive_int(
+            "SEARCH_TIMEOUT_SECONDS", 15
+        )
+        self.SEARCH_MAX_OUTPUT_BYTES = _env_positive_int(
+            "SEARCH_MAX_OUTPUT_BYTES", 65536
+        )
 
         self.FASTAPI_HOST = os.environ.get("FASTAPI_HOST", "0.0.0.0").strip()
         self.FASTAPI_PORT = _env_int("FASTAPI_PORT", 8000)
@@ -120,8 +189,17 @@ class Config:
         self.REDIS_URL = os.environ.get(
             "REDIS_URL", "redis://localhost:6379/0"
         ).strip()
-        self.REDIS_SOCKET_TIMEOUT_SECONDS = _env_float(
+        self.REDIS_SOCKET_TIMEOUT_SECONDS = _env_positive_float(
             "REDIS_SOCKET_TIMEOUT_SECONDS", 1.0
+        )
+        self.REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS = _env_positive_int(
+            "REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS", 1
+        )
+        self.REDIS_RECOVERY_MAX_BACKOFF_SECONDS = _env_positive_int(
+            "REDIS_RECOVERY_MAX_BACKOFF_SECONDS", 30
+        )
+        self.REDIS_RECOVERY_JITTER_RATIO = _env_positive_float(
+            "REDIS_RECOVERY_JITTER_RATIO", 0.2
         )
 
         self.FILE_STORAGE_ROOT = os.environ.get(
@@ -153,6 +231,13 @@ class Config:
         self.FILE_ANALYSIS_MAX_CHARS = _env_positive_int(
             "FILE_ANALYSIS_MAX_CHARS", 20000
         )
+        if (
+            self.FILE_ANALYSIS_MAX_CHARS
+            > _FILE_ANALYSIS_MAX_CHARS_LIMIT
+        ):
+            raise ConfigurationError(
+                "FILE_ANALYSIS_MAX_CHARS must be <= 20000"
+            )
         if self.FILE_UPLOAD_BATCH_MAX_BYTES < self.FILE_UPLOAD_MAX_BYTES:
             raise ConfigurationError(
                 "FILE_UPLOAD_BATCH_MAX_BYTES must be >= "
@@ -176,10 +261,96 @@ class Config:
                 "FILE_USER_MAX_COUNT must be >= "
                 "FILE_UPLOAD_BATCH_MAX_COUNT"
             )
+        if self.MODEL_REQUEST_TIMEOUT_SECONDS > (
+            _MODEL_REQUEST_TIMEOUT_MAX_SECONDS
+        ):
+            raise ConfigurationError(
+                "MODEL_REQUEST_TIMEOUT_SECONDS must be <= 45"
+            )
+        if self.MODEL_MAX_RETRIES > _MODEL_MAX_RETRIES_LIMIT:
+            raise ConfigurationError("MODEL_MAX_RETRIES must be <= 1")
+        if self.MODEL_MAX_OUTPUT_TOKENS > _MODEL_MAX_OUTPUT_TOKENS_LIMIT:
+            raise ConfigurationError(
+                "MODEL_MAX_OUTPUT_TOKENS must be <= 4096"
+            )
+        if self.SEARCH_QUERY_MAX_CHARS > _SEARCH_QUERY_MAX_CHARS_LIMIT:
+            raise ConfigurationError(
+                "SEARCH_QUERY_MAX_CHARS must be <= 2000"
+            )
+        if self.SEARCH_MAX_RESULTS > _SEARCH_MAX_RESULTS_LIMIT:
+            raise ConfigurationError("SEARCH_MAX_RESULTS must be <= 5")
+        if self.SEARCH_TIMEOUT_SECONDS > _SEARCH_TIMEOUT_MAX_SECONDS:
+            raise ConfigurationError("SEARCH_TIMEOUT_SECONDS must be <= 15")
+        if self.SEARCH_MAX_OUTPUT_BYTES > _SEARCH_MAX_OUTPUT_BYTES_LIMIT:
+            raise ConfigurationError(
+                "SEARCH_MAX_OUTPUT_BYTES must be <= 65536"
+            )
+        if (
+            self.AGENT_USER_CONCURRENCY_LIMIT
+            > self.AGENT_GLOBAL_CONCURRENCY_LIMIT
+        ):
+            raise ConfigurationError(
+                "AGENT_USER_CONCURRENCY_LIMIT must be <= "
+                "AGENT_GLOBAL_CONCURRENCY_LIMIT"
+            )
+        if (
+            self.AGENT_CONCURRENCY_WAIT_SECONDS
+            >= self.AGENT_RUN_TIMEOUT_SECONDS
+        ):
+            raise ConfigurationError(
+                "AGENT_CONCURRENCY_WAIT_SECONDS must be < "
+                "AGENT_RUN_TIMEOUT_SECONDS"
+            )
+        if (
+            self.AGENT_CONCURRENCY_LEASE_TTL_SECONDS
+            <= self.AGENT_RUN_TIMEOUT_SECONDS
+        ):
+            raise ConfigurationError(
+                "AGENT_CONCURRENCY_LEASE_TTL_SECONDS must be > "
+                "AGENT_RUN_TIMEOUT_SECONDS"
+            )
+        if (
+            self.MODEL_REQUEST_TIMEOUT_SECONDS
+            > self.AGENT_RUN_TIMEOUT_SECONDS
+        ):
+            raise ConfigurationError(
+                "MODEL_REQUEST_TIMEOUT_SECONDS must be <= "
+                "AGENT_RUN_TIMEOUT_SECONDS"
+            )
+        if self.SEARCH_TIMEOUT_SECONDS > self.AGENT_RUN_TIMEOUT_SECONDS:
+            raise ConfigurationError(
+                "SEARCH_TIMEOUT_SECONDS must be <= "
+                "AGENT_RUN_TIMEOUT_SECONDS"
+            )
+        if self.SEARCH_QUERY_MAX_CHARS > self.AGENT_QUERY_MAX_CHARS:
+            raise ConfigurationError(
+                "SEARCH_QUERY_MAX_CHARS must be <= AGENT_QUERY_MAX_CHARS"
+            )
+        if self.FILE_ANALYSIS_MAX_CHARS > self.AGENT_RESPONSE_MAX_CHARS:
+            raise ConfigurationError(
+                "FILE_ANALYSIS_MAX_CHARS must be <= "
+                "AGENT_RESPONSE_MAX_CHARS"
+            )
+        if (
+            self.REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS
+            > self.REDIS_RECOVERY_MAX_BACKOFF_SECONDS
+        ):
+            raise ConfigurationError(
+                "REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS must be <= "
+                "REDIS_RECOVERY_MAX_BACKOFF_SECONDS"
+            )
+        if (
+            self.REDIS_RECOVERY_MAX_BACKOFF_SECONDS
+            > _REDIS_RECOVERY_MAX_BACKOFF_LIMIT_SECONDS
+        ):
+            raise ConfigurationError(
+                "REDIS_RECOVERY_MAX_BACKOFF_SECONDS must be <= 30"
+            )
+        if self.REDIS_RECOVERY_JITTER_RATIO > 1:
+            raise ConfigurationError(
+                "REDIS_RECOVERY_JITTER_RATIO must be <= 1"
+            )
 
-        self.ENABLE_CODE_EXECUTION = _env_bool(
-            "ENABLE_CODE_EXECUTION", default=False
-        )
         jwt_secret = _optional_env("JWT_SECRET_KEY")
         self.JWT_SECRET_KEY = (
             jwt_secret if jwt_secret and len(jwt_secret) >= 32 else None

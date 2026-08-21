@@ -4,7 +4,7 @@ import logging
 from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 
@@ -15,7 +15,11 @@ from data_agent.models.user import User, UserRole
 from data_agent.observability import rate_limit_middleware
 from data_agent.services.auth_service import (create_access_token,
                                               get_current_user)
-from data_agent.services.rate_limit_service import RateLimitDecision
+from data_agent.services.rate_limit_service import (PROTECTION_DEGRADED,
+                                                    PROTECTION_UNAVAILABLE,
+                                                    RateLimitDecision)
+from data_agent.services.redis_recovery import (AGENT_PROTECTION_UNAVAILABLE,
+                                                REDIS_UNAVAILABLE_REASON)
 
 TEST_JWT_SECRET = "rate-limit-suite-secret-with-at-least-32-characters"
 
@@ -38,6 +42,9 @@ _ALLOWED_EVENT_KEYS = {
     "retry_after",
     "window_seconds",
     "operation",
+    "error_code",
+    "protection_status",
+    "protection_reason",
 }
 
 
@@ -177,6 +184,76 @@ def test_over_limit_returns_stable_429(monkeypatch) -> None:
     assert fake.calls and fake.calls[0]["scope"] == "query"
 
 
+def test_query_protection_failure_returns_503_before_agent(
+    monkeypatch,
+) -> None:
+    unavailable = RateLimitDecision(
+        allowed=False,
+        limit=20,
+        remaining=0,
+        retry_after=3,
+        window_seconds=60,
+        protection_status=PROTECTION_UNAVAILABLE,
+        protection_reason=REDIS_UNAVAILABLE_REASON,
+    )
+    monkeypatch.setattr(
+        rate_limit_middleware,
+        "global_rate_limit_service",
+        _StaticLimiter(unavailable),
+    )
+    invoke = AsyncMock(
+        side_effect=AssertionError("agent ran without Redis protection")
+    )
+    monkeypatch.setattr(
+        agent_server.global_agent_service,
+        "ainvoke",
+        invoke,
+    )
+
+    with _authenticated_actor():
+        response = _request(
+            "POST",
+            "/api/query",
+            json={"query": "must not reach agent"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == (
+        AGENT_PROTECTION_UNAVAILABLE
+    )
+    assert response.headers["Retry-After"] == "3"
+    assert response.headers["X-RateLimit-Protection"] == (
+        PROTECTION_UNAVAILABLE
+    )
+    invoke.assert_not_called()
+
+
+def test_low_cost_scope_fails_open_with_degraded_protection(
+    monkeypatch,
+) -> None:
+    degraded = RateLimitDecision(
+        allowed=True,
+        limit=120,
+        remaining=120,
+        retry_after=0,
+        window_seconds=60,
+        protection_status=PROTECTION_DEGRADED,
+        protection_reason=REDIS_UNAVAILABLE_REASON,
+    )
+    fake = _StaticLimiter(degraded)
+    monkeypatch.setattr(
+        rate_limit_middleware, "global_rate_limit_service", fake
+    )
+
+    response = _request("GET", "/api/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.headers["X-RateLimit-Protection"] == (
+        PROTECTION_DEGRADED
+    )
+    assert fake.calls and fake.calls[0]["scope"] == "default"
+
+
 def test_under_limit_passes_through_with_headers(monkeypatch) -> None:
     allowed = RateLimitDecision(
         allowed=True,
@@ -192,8 +269,8 @@ def test_under_limit_passes_through_with_headers(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         agent_server.global_agent_service,
-        "invoke",
-        Mock(return_value="ok"),
+        "ainvoke",
+        AsyncMock(return_value="ok"),
     )
 
     with _authenticated_actor():
@@ -249,8 +326,8 @@ def test_distinct_identities_are_counted_independently(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         agent_server.global_agent_service,
-        "invoke",
-        Mock(return_value="ok"),
+        "ainvoke",
+        AsyncMock(return_value="ok"),
     )
 
     token_a = create_access_token(1)
@@ -320,11 +397,25 @@ def test_rate_limit_events_do_not_leak_sensitive_values(monkeypatch) -> None:
     rate_limit_logger.setLevel(logging.INFO)
     rate_limit_logger.addHandler(capture)
     try:
-        # 先走真实（离线降级）限流服务，捕获 degraded + allowed 决策事件。
+        # 先走受控保护不可用决策，证明 query 在 Agent 前 fail-closed。
+        unavailable = RateLimitDecision(
+            allowed=False,
+            limit=20,
+            remaining=0,
+            retry_after=3,
+            window_seconds=60,
+            protection_status=PROTECTION_UNAVAILABLE,
+            protection_reason=REDIS_UNAVAILABLE_REASON,
+        )
+        monkeypatch.setattr(
+            rate_limit_middleware,
+            "global_rate_limit_service",
+            _StaticLimiter(unavailable),
+        )
         monkeypatch.setattr(
             agent_server.global_agent_service,
-            "invoke",
-            Mock(return_value="ok"),
+            "ainvoke",
+            AsyncMock(return_value="ok"),
         )
         with _authenticated_actor(12345):
             degraded_response = _request(
@@ -365,19 +456,21 @@ def test_rate_limit_events_do_not_leak_sensitive_values(monkeypatch) -> None:
         rate_limit_logger.removeHandler(capture)
         rate_limit_logger.setLevel(previous_level)
 
-    assert degraded_response.status_code == 200
+    assert degraded_response.status_code == 503
+    assert degraded_response.json()["detail"]["code"] == (
+        AGENT_PROTECTION_UNAVAILABLE
+    )
     assert limited_response.status_code == 429
 
     events = capture.events()
     event_names = {str(event["event"]) for event in events}
-    assert "rate_limit.degraded" in event_names
     assert "rate_limit.decision" in event_names
     decisions = {
         event.get("decision")
         for event in events
         if event["event"] == "rate_limit.decision"
     }
-    assert {"allowed", "limited"} <= decisions
+    assert {"denied", "limited"} <= decisions
 
     serialized = json.dumps(events)
     for forbidden in (
@@ -410,8 +503,8 @@ def test_disabled_rate_limit_passes_through_without_counting(
     )
     monkeypatch.setattr(
         agent_server.global_agent_service,
-        "invoke",
-        Mock(return_value="ok"),
+        "ainvoke",
+        AsyncMock(return_value="ok"),
     )
 
     with _authenticated_actor():

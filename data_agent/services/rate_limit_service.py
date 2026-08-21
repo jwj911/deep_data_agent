@@ -10,6 +10,18 @@ from redis.exceptions import RedisError
 from data_agent.config.config import config
 from data_agent.config.logger import rate_limit_logger
 from data_agent.observability.events import emit_event
+from data_agent.services.redis_recovery import (REDIS_AVAILABLE,
+                                                REDIS_UNAVAILABLE_REASON,
+                                                RedisClientFactory,
+                                                RedisProtectionState,
+                                                RedisRecoveryState)
+
+PROTECTION_ENFORCED = "enforced"
+PROTECTION_DEGRADED = "degraded"
+PROTECTION_UNAVAILABLE = "unavailable"
+PROTECTION_WITHIN_LIMIT = "within_limit"
+PROTECTION_LIMIT_EXCEEDED = "rate_limit_exceeded"
+_FAIL_OPEN_SCOPES = frozenset({"auth", "session", "default"})
 
 
 @dataclass(frozen=True)
@@ -21,48 +33,98 @@ class RateLimitDecision:
     remaining: int
     retry_after: int
     window_seconds: int
+    protection_status: str = PROTECTION_ENFORCED
+    protection_reason: str = PROTECTION_WITHIN_LIMIT
 
 
 class RateLimitService:
-    """Redis fixed-window limiter that fails open when Redis is unavailable."""
+    """Redis fixed-window limiter with scope-specific failure policy."""
 
     def __init__(
         self,
         redis_url: Optional[str] = None,
         client: Optional[redis.Redis] = None,
+        client_factory: RedisClientFactory | None = None,
+        recovery_state: RedisRecoveryState | None = None,
     ) -> None:
-        self.redis_client = client
-        self.available = False
+        if recovery_state is not None:
+            self._recovery = recovery_state
+            return
 
-        try:
-            if self.redis_client is None:
-                self.redis_client = redis.Redis.from_url(
-                    redis_url or config.REDIS_URL,
-                    decode_responses=True,
-                    socket_connect_timeout=config.REDIS_SOCKET_TIMEOUT_SECONDS,
-                    socket_timeout=config.REDIS_SOCKET_TIMEOUT_SECONDS,
-                )
-            self.redis_client.ping()
-            self.available = True
-        except (RedisError, OSError, ValueError):
-            self.redis_client = None
+        resolved_url = redis_url or config.REDIS_URL
+        if client_factory is None:
+            if client is not None:
+                client_factory = lambda _redis_url: client
+            else:
+                client_factory = self._create_client
+        self._recovery = RedisRecoveryState(
+            redis_url=resolved_url,
+            client_factory=client_factory,
+            initial_client=client,
+            initial_backoff_seconds=(
+                config.REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS
+            ),
+            max_backoff_seconds=config.REDIS_RECOVERY_MAX_BACKOFF_SECONDS,
+            jitter_ratio=config.REDIS_RECOVERY_JITTER_RATIO,
+            on_state_change=self._on_redis_state_change,
+        )
+
+    @staticmethod
+    def _create_client(redis_url: str) -> redis.Redis:
+        return redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=config.REDIS_SOCKET_TIMEOUT_SECONDS,
+            socket_timeout=config.REDIS_SOCKET_TIMEOUT_SECONDS,
+        )
+
+    @staticmethod
+    def _on_redis_state_change(status: str, operation: str) -> None:
+        if status == REDIS_AVAILABLE:
+            emit_event(
+                rate_limit_logger,
+                "rate_limit.recovered",
+                operation=operation,
+                outcome="success",
+            )
+        else:
             emit_event(
                 rate_limit_logger,
                 "rate_limit.degraded",
                 level=logging.WARNING,
-                operation="connect",
+                operation=operation,
                 outcome="degraded",
             )
 
-    def _disable_after_connection_error(self, scope: str) -> None:
-        self.available = False
-        emit_event(
-            rate_limit_logger,
-            "rate_limit.degraded",
-            level=logging.WARNING,
-            scope=scope,
-            operation="check",
-            outcome="degraded",
+    @property
+    def available(self) -> bool:
+        return self._recovery.available
+
+    @property
+    def protection_state(self) -> RedisProtectionState:
+        return self._recovery.protection_state
+
+    def _unavailable_decision(
+        self,
+        *,
+        scope: str,
+        limit: int,
+        window_seconds: int,
+    ) -> RateLimitDecision:
+        state = self.protection_state
+        fail_closed = scope not in _FAIL_OPEN_SCOPES
+        return RateLimitDecision(
+            allowed=not fail_closed,
+            limit=limit,
+            remaining=0 if fail_closed else limit,
+            retry_after=state.retry_after if fail_closed else 0,
+            window_seconds=window_seconds,
+            protection_status=(
+                PROTECTION_UNAVAILABLE
+                if fail_closed
+                else PROTECTION_DEGRADED
+            ),
+            protection_reason=REDIS_UNAVAILABLE_REASON,
         )
 
     @staticmethod
@@ -90,21 +152,11 @@ class RateLimitService:
         This service only counts and digests; it never records the raw
         identity_key, tokens, plaintext origins, prompts or business data.
         """
-        if not self.available or self.redis_client is None:
-            emit_event(
-                rate_limit_logger,
-                "rate_limit.degraded",
-                level=logging.WARNING,
+        client = self._recovery.get_client()
+        if client is None:
+            return self._unavailable_decision(
                 scope=scope,
-                operation="check",
-                outcome="degraded",
-                window_seconds=window_seconds,
-            )
-            return RateLimitDecision(
-                allowed=True,
                 limit=limit,
-                remaining=limit,
-                retry_after=0,
                 window_seconds=window_seconds,
             )
 
@@ -112,16 +164,16 @@ class RateLimitService:
             scope, identity_key, window_seconds, time.time()
         )
         try:
-            count = int(self.redis_client.incr(key))
+            count = int(client.incr(key))
             if count == 1:
-                self.redis_client.expire(key, window_seconds)
+                client.expire(key, window_seconds)
 
             allowed = count <= limit
             remaining = max(limit - count, 0)
             if allowed:
                 retry_after = 0
             else:
-                ttl = int(self.redis_client.ttl(key))
+                ttl = int(client.ttl(key))
                 retry_after = ttl if ttl > 0 else window_seconds
 
             return RateLimitDecision(
@@ -130,14 +182,18 @@ class RateLimitService:
                 remaining=remaining,
                 retry_after=retry_after,
                 window_seconds=window_seconds,
+                protection_status=PROTECTION_ENFORCED,
+                protection_reason=(
+                    PROTECTION_WITHIN_LIMIT
+                    if allowed
+                    else PROTECTION_LIMIT_EXCEEDED
+                ),
             )
-        except RedisError:
-            self._disable_after_connection_error(scope)
-            return RateLimitDecision(
-                allowed=True,
+        except (RedisError, OSError, ValueError):
+            self._recovery.mark_unavailable(client, "check")
+            return self._unavailable_decision(
+                scope=scope,
                 limit=limit,
-                remaining=limit,
-                retry_after=0,
                 window_seconds=window_seconds,
             )
 

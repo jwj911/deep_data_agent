@@ -21,6 +21,15 @@ MANAGED_FILE_MODEL_PATH = "data_agent/models/managed_file.py"
 MANAGED_FILE_ROUTE_PATH = "data_agent/routes/managed_file.py"
 MANAGED_FILE_SERVICE_PATH = "data_agent/services/managed_file_service.py"
 DOCUMENT_TOOL_PATH = "data_agent/tools/document_analysis.py"
+AGENT_CONFIG_PATH = "data_agent/config/config.py"
+AGENT_SERVICE_PATH = "data_agent/services/agent_service.py"
+SEARCH_TOOL_PATH = "data_agent/tools/search.py"
+TOOL_MANAGER_PATH = "data_agent/tools/tool_manager.py"
+AGENT_SERVER_PATH = "data_agent/agent_server.py"
+READINESS_PATH = "data_agent/readiness.py"
+CODE_EXECUTION_TOOL_PATH = "data_agent/tools/code_execution.py"
+RELEASE_WORKFLOW_PATH = ".github/workflows/release-readiness.yml"
+CONTAINER_SMOKE_PATH = "scripts/verify_container_smoke.py"
 FRONTEND_FILE_CLIENT_PATH = "agent_chatui/src/lib/managed-file-client.ts"
 FRONTEND_FILE_HOOK_PATH = "agent_chatui/src/hooks/use-file-upload.tsx"
 REQUIRED_SCAN_FILES = {
@@ -39,6 +48,14 @@ REQUIRED_SCAN_FILES = {
     MANAGED_FILE_ROUTE_PATH,
     MANAGED_FILE_SERVICE_PATH,
     DOCUMENT_TOOL_PATH,
+    AGENT_CONFIG_PATH,
+    AGENT_SERVICE_PATH,
+    SEARCH_TOOL_PATH,
+    TOOL_MANAGER_PATH,
+    AGENT_SERVER_PATH,
+    READINESS_PATH,
+    RELEASE_WORKFLOW_PATH,
+    CONTAINER_SMOKE_PATH,
     FRONTEND_FILE_CLIENT_PATH,
     FRONTEND_FILE_HOOK_PATH,
 }
@@ -93,6 +110,26 @@ FILE_USER_MAX_COUNT=100
 FILE_RETENTION_HOURS=168
 FILE_ANALYSIS_MAX_CHARS=20000
 COMPOSE_FILE_STORAGE_ROOT=/data/managed-files
+MODEL_REQUEST_TIMEOUT_SECONDS=45
+MODEL_MAX_RETRIES=1
+MODEL_MAX_OUTPUT_TOKENS=4096
+AGENT_QUERY_MAX_CHARS=8000
+AGENT_RESPONSE_MAX_CHARS=32000
+AGENT_RUN_TIMEOUT_SECONDS=60
+AGENT_RECURSION_LIMIT=25
+AGENT_MODEL_CALL_LIMIT=8
+AGENT_TOOL_CALL_LIMIT=12
+AGENT_GLOBAL_CONCURRENCY_LIMIT=4
+AGENT_USER_CONCURRENCY_LIMIT=1
+AGENT_CONCURRENCY_WAIT_SECONDS=1
+AGENT_CONCURRENCY_LEASE_TTL_SECONDS=75
+SEARCH_QUERY_MAX_CHARS=2000
+SEARCH_MAX_RESULTS=5
+SEARCH_TIMEOUT_SECONDS=15
+SEARCH_MAX_OUTPUT_BYTES=65536
+REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS=1
+REDIS_RECOVERY_MAX_BACKOFF_SECONDS=30
+REDIS_RECOVERY_JITTER_RATIO=0.2
 """
 VALID_COMPOSE = """\
 x-bounded-logging: &bounded-logging
@@ -111,9 +148,34 @@ services:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-mysql+pymysql://app:app@mysql:3306/app}
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379/0}
       FILE_STORAGE_ROOT: ${COMPOSE_FILE_STORAGE_ROOT:-/data/managed-files}
+      MODEL_REQUEST_TIMEOUT_SECONDS: ${MODEL_REQUEST_TIMEOUT_SECONDS:-45}
+      MODEL_MAX_RETRIES: ${MODEL_MAX_RETRIES:-1}
+      MODEL_MAX_OUTPUT_TOKENS: ${MODEL_MAX_OUTPUT_TOKENS:-4096}
+      AGENT_QUERY_MAX_CHARS: ${AGENT_QUERY_MAX_CHARS:-8000}
+      AGENT_RESPONSE_MAX_CHARS: ${AGENT_RESPONSE_MAX_CHARS:-32000}
+      AGENT_RUN_TIMEOUT_SECONDS: ${AGENT_RUN_TIMEOUT_SECONDS:-60}
+      AGENT_RECURSION_LIMIT: ${AGENT_RECURSION_LIMIT:-25}
+      AGENT_MODEL_CALL_LIMIT: ${AGENT_MODEL_CALL_LIMIT:-8}
+      AGENT_TOOL_CALL_LIMIT: ${AGENT_TOOL_CALL_LIMIT:-12}
+      AGENT_GLOBAL_CONCURRENCY_LIMIT: ${AGENT_GLOBAL_CONCURRENCY_LIMIT:-4}
+      AGENT_USER_CONCURRENCY_LIMIT: ${AGENT_USER_CONCURRENCY_LIMIT:-1}
+      AGENT_CONCURRENCY_WAIT_SECONDS: ${AGENT_CONCURRENCY_WAIT_SECONDS:-1}
+      AGENT_CONCURRENCY_LEASE_TTL_SECONDS: ${AGENT_CONCURRENCY_LEASE_TTL_SECONDS:-75}
+      SEARCH_QUERY_MAX_CHARS: ${SEARCH_QUERY_MAX_CHARS:-2000}
+      SEARCH_MAX_RESULTS: ${SEARCH_MAX_RESULTS:-5}
+      SEARCH_TIMEOUT_SECONDS: ${SEARCH_TIMEOUT_SECONDS:-15}
+      SEARCH_MAX_OUTPUT_BYTES: ${SEARCH_MAX_OUTPUT_BYTES:-65536}
+      REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS: ${REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS:-1}
+      REDIS_RECOVERY_MAX_BACKOFF_SECONDS: ${REDIS_RECOVERY_MAX_BACKOFF_SECONDS:-30}
+      REDIS_RECOVERY_JITTER_RATIO: ${REDIS_RECOVERY_JITTER_RATIO:-0.2}
+    healthcheck:
+      test: http://127.0.0.1:8000/api/ready
     logging: *bounded-logging
     volumes:
       - managed_file_data:/data/managed-files
+  langgraph:
+    healthcheck:
+      test: http://127.0.0.1:2024/info && python -m data_agent.readiness
   frontend:
     logging: *bounded-logging
 volumes:
@@ -222,6 +284,96 @@ def analyze_document(file_id: str, config: RunnableConfig):
     user_id = config["configurable"]["langgraph_auth_user_id"]
     return global_managed_file_service.analyze_file(user_id, file_id)
 """
+VALID_AGENT_CONFIG = """\
+MODEL_REQUEST_TIMEOUT_SECONDS = env("MODEL_REQUEST_TIMEOUT_SECONDS", 45)
+MODEL_MAX_RETRIES = env("MODEL_MAX_RETRIES", 1)
+MODEL_MAX_OUTPUT_TOKENS = env("MODEL_MAX_OUTPUT_TOKENS", 4096)
+AGENT_QUERY_MAX_CHARS = env("AGENT_QUERY_MAX_CHARS", 8000)
+AGENT_RESPONSE_MAX_CHARS = env("AGENT_RESPONSE_MAX_CHARS", 32000)
+AGENT_RUN_TIMEOUT_SECONDS = env("AGENT_RUN_TIMEOUT_SECONDS", 60)
+AGENT_RECURSION_LIMIT = env("AGENT_RECURSION_LIMIT", 25)
+AGENT_MODEL_CALL_LIMIT = env("AGENT_MODEL_CALL_LIMIT", 8)
+AGENT_TOOL_CALL_LIMIT = env("AGENT_TOOL_CALL_LIMIT", 12)
+AGENT_GLOBAL_CONCURRENCY_LIMIT = env("AGENT_GLOBAL_CONCURRENCY_LIMIT", 4)
+AGENT_USER_CONCURRENCY_LIMIT = env("AGENT_USER_CONCURRENCY_LIMIT", 1)
+AGENT_CONCURRENCY_WAIT_SECONDS = env("AGENT_CONCURRENCY_WAIT_SECONDS", 1)
+AGENT_CONCURRENCY_LEASE_TTL_SECONDS = env("AGENT_CONCURRENCY_LEASE_TTL_SECONDS", 75)
+SEARCH_QUERY_MAX_CHARS = env("SEARCH_QUERY_MAX_CHARS", 2000)
+SEARCH_MAX_RESULTS = env("SEARCH_MAX_RESULTS", 5)
+SEARCH_TIMEOUT_SECONDS = env("SEARCH_TIMEOUT_SECONDS", 15)
+SEARCH_MAX_OUTPUT_BYTES = env("SEARCH_MAX_OUTPUT_BYTES", 65536)
+REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS = env("REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS", 1)
+REDIS_RECOVERY_MAX_BACKOFF_SECONDS = env("REDIS_RECOVERY_MAX_BACKOFF_SECONDS", 30)
+REDIS_RECOVERY_JITTER_RATIO = env("REDIS_RECOVERY_JITTER_RATIO", 0.2)
+"""
+VALID_AGENT_SERVICE = """\
+ModelCallLimitMiddleware(
+    run_limit=config.AGENT_MODEL_CALL_LIMIT,
+    exit_behavior="error",
+)
+ToolCallLimitMiddleware(
+    run_limit=config.AGENT_TOOL_CALL_LIMIT,
+    exit_behavior="error",
+)
+bounded["recursion_limit"] = config.AGENT_RECURSION_LIMIT
+ChatOpenAI(
+    timeout=config.MODEL_REQUEST_TIMEOUT_SECONDS,
+    max_retries=config.MODEL_MAX_RETRIES,
+    max_tokens=config.MODEL_MAX_OUTPUT_TOKENS,
+)
+"""
+VALID_SEARCH_TOOL = """\
+from tavily import AsyncTavilyClient
+
+async def internet_search(
+    query: Annotated[str, Field(max_length=2000)],
+    max_results: Annotated[int, Field(le=5)],
+    topic: Literal["general", "news"],
+):
+    async with asyncio.timeout(config.SEARCH_TIMEOUT_SECONDS):
+        return await client.search(
+            include_raw_content=False,
+            max_bytes=config.SEARCH_MAX_OUTPUT_BYTES,
+        )
+"""
+VALID_TOOL_MANAGER = """\
+self.register_tool("internet_search", internet_search)
+self.register_tool("analyze_document", analyze_document)
+"""
+VALID_AGENT_SERVER = """\
+@app.get("/api/live")
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy"}
+
+@app.get("/api/ready")
+async def readiness_check():
+    return await check_readiness_async()
+"""
+VALID_READINESS = """\
+def check_readiness():
+    config.require_model_api_key()
+    connection.execute(text("SELECT 1"))
+    ScriptDirectory.from_config(config).get_heads()
+    MigrationContext.configure(connection).get_current_heads()
+    client.ping()
+    root = storage._storage_root(create=True)
+
+async def check_readiness_async():
+    return await anyio.to_thread.run_sync(check_readiness)
+"""
+VALID_RELEASE_WORKFLOW = """\
+- name: Verify Redis stop and recovery
+  run: python scripts/verify_container_smoke.py redis-canary
+"""
+VALID_CONTAINER_SMOKE = """\
+AGENT_PROTECTION_UNAVAILABLE = "agent_protection_unavailable"
+
+def verify_redis_recovery_canary():
+    live = "/api/live"
+    ready = "/api/ready"
+    commands = ("stop", "start")
+"""
 VALID_FRONTEND_FILE_CLIENT = """\
 const path = "api/files";
 const FILE_MAX_BYTES = 5242880;
@@ -274,6 +426,14 @@ def _create_minimal_repository(root: Path) -> set[str]:
     _write(root, MANAGED_FILE_ROUTE_PATH, VALID_MANAGED_FILE_ROUTE)
     _write(root, MANAGED_FILE_SERVICE_PATH, VALID_MANAGED_FILE_SERVICE)
     _write(root, DOCUMENT_TOOL_PATH, VALID_DOCUMENT_TOOL)
+    _write(root, AGENT_CONFIG_PATH, VALID_AGENT_CONFIG)
+    _write(root, AGENT_SERVICE_PATH, VALID_AGENT_SERVICE)
+    _write(root, SEARCH_TOOL_PATH, VALID_SEARCH_TOOL)
+    _write(root, TOOL_MANAGER_PATH, VALID_TOOL_MANAGER)
+    _write(root, AGENT_SERVER_PATH, VALID_AGENT_SERVER)
+    _write(root, READINESS_PATH, VALID_READINESS)
+    _write(root, RELEASE_WORKFLOW_PATH, VALID_RELEASE_WORKFLOW)
+    _write(root, CONTAINER_SMOKE_PATH, VALID_CONTAINER_SMOKE)
     _write(root, FRONTEND_FILE_CLIENT_PATH, VALID_FRONTEND_FILE_CLIENT)
     _write(root, FRONTEND_FILE_HOOK_PATH, VALID_FRONTEND_FILE_HOOK)
     _write(
@@ -924,6 +1084,131 @@ def test_file_ingestion_env_defaults_must_be_exact(tmp_path, variable):
         for item in violations
         if item.rule == "FILE_INGESTION_ENV_DEFAULT"
     ] == [("FILE_INGESTION_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
+
+
+@pytest.mark.parametrize(
+    "variable",
+    sorted(contracts.AGENT_RESOURCE_DEFAULTS),
+)
+def test_agent_resource_env_defaults_must_be_exact(tmp_path, variable):
+    scan_files = _create_minimal_repository(tmp_path)
+    expected = contracts.AGENT_RESOURCE_DEFAULTS[variable]
+    invalid_env = VALID_ENV_EXAMPLE.replace(
+        f"{variable}={expected}",
+        f"{variable}=invalid",
+    )
+    _write(tmp_path, ENV_EXAMPLE_PATH, invalid_env)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "AGENT_RESOURCE_ENV_DEFAULT"
+    ] == [("AGENT_RESOURCE_ENV_DEFAULT", ENV_EXAMPLE_PATH)]
+
+
+@pytest.mark.parametrize(
+    "variable",
+    sorted(contracts.AGENT_RESOURCE_DEFAULTS),
+)
+def test_agent_resource_compose_defaults_must_be_exact(
+    tmp_path,
+    variable,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    expected = contracts.AGENT_RESOURCE_DEFAULTS[variable]
+    invalid_compose = VALID_COMPOSE.replace(
+        f"{variable}: ${{{variable}:-{expected}}}",
+        f"{variable}: invalid",
+    )
+    _write(tmp_path, COMPOSE_PATH, invalid_compose)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "AGENT_RESOURCE_COMPOSE_DEFAULT"
+    ] == [("AGENT_RESOURCE_COMPOSE_DEFAULT", COMPOSE_PATH)]
+
+
+@pytest.mark.parametrize(
+    ("path", "source"),
+    [
+        (ENV_EXAMPLE_PATH, "ENABLE_CODE_EXECUTION=true\n"),
+        (TOOL_MANAGER_PATH, "register(execute_python_code)\n"),
+        (CODE_EXECUTION_TOOL_PATH, "def execute_python_code(): pass\n"),
+    ],
+)
+def test_code_execution_runtime_cannot_be_restored(
+    tmp_path,
+    path,
+    source,
+):
+    scan_files = _create_minimal_repository(tmp_path)
+    if path == ENV_EXAMPLE_PATH:
+        source = VALID_ENV_EXAMPLE + source
+    elif path == TOOL_MANAGER_PATH:
+        source = VALID_TOOL_MANAGER + source
+    else:
+        scan_files.add(path)
+    _write(tmp_path, path, source)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert any(
+        item.rule == "CODE_EXECUTION_RUNTIME_REMOVED"
+        and item.path == path
+        for item in violations
+    )
+
+
+def test_readiness_compose_healthcheck_cannot_use_liveness(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    invalid_compose = VALID_COMPOSE.replace(
+        "127.0.0.1:8000/api/ready",
+        "127.0.0.1:8000/api/health",
+    )
+    _write(tmp_path, COMPOSE_PATH, invalid_compose)
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "READINESS_COMPOSE_HEALTHCHECK"
+    ] == [("READINESS_COMPOSE_HEALTHCHECK", COMPOSE_PATH)]
+
+
+def test_readiness_helper_cannot_call_external_services(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(
+        tmp_path,
+        READINESS_PATH,
+        VALID_READINESS + "\nclient = ChatOpenAI()\n",
+    )
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "READINESS_EXTERNAL_CALL"
+    ] == [("READINESS_EXTERNAL_CALL", READINESS_PATH)]
+
+
+def test_redis_recovery_canary_is_required_by_release_workflow(tmp_path):
+    scan_files = _create_minimal_repository(tmp_path)
+    _write(tmp_path, RELEASE_WORKFLOW_PATH, "steps: []\n")
+
+    violations = _check(tmp_path, scan_files=scan_files)
+
+    assert [
+        (item.rule, item.path)
+        for item in violations
+        if item.rule == "READINESS_RUNTIME"
+    ] == [("READINESS_RUNTIME", RELEASE_WORKFLOW_PATH)]
 
 
 def test_managed_file_compose_volume_is_required(tmp_path):

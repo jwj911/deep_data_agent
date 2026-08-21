@@ -25,6 +25,7 @@ _ENUM_FIELDS = {
         "cleared",
         "skipped",
         "unavailable",
+        "available",
     },
     "scope": {
         "auth",
@@ -40,6 +41,16 @@ _ENUM_FIELDS = {
         "allowed",
         "denied",
         "limited",
+    },
+    "protection_status": {
+        "enforced",
+        "degraded",
+        "unavailable",
+    },
+    "protection_reason": {
+        "within_limit",
+        "rate_limit_exceeded",
+        "redis_unavailable",
     },
     "actor_kind": {
         "configuration",

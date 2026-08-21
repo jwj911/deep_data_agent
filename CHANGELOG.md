@@ -5,6 +5,48 @@
 
 ## [Unreleased]
 
+### 约束 Agent 资源使用（2026-08-21，本地完成、远端待验证）
+
+- `bound-agent-resource-use` 已完成本地实现与验证，成为第 11 个已完成或本地完成的
+  change-id；Roadmap 余下 8 个候选，下一候选为 `prove-data-recovery`。当前尚未
+  提交，不记录本 change-id 的实现提交或远端运行标识。
+- 新增 Agent、模型、搜索和 Redis 恢复预算配置、关系校验、Compose 默认值与发布
+  契约。FastAPI 查询/最终响应默认上限为 8,000/32,000 个字符；每 run 默认
+  60 秒、recursion 25、模型调用 8 次、工具调用 12 次。
+- FastAPI AgentService 改为 async `ainvoke`；总 deadline 覆盖可取消 cache
+  get/set 与图调用，timeout、取消、预算超限和超大响应不写缓存，并映射稳定错误码。
+- FastAPI 与 LangGraph Agent 共用 Redis 原子全局 4/用户 1 双层租约，等待 1 秒、
+  TTL 75 秒；管理员及客户端 config/context 不能扩大预算或伪造主体。
+- `create_deep_agent` 接入 LangChain 模型/工具调用限制 middleware，并在同步与异步
+  图入口强制服务端 recursion limit；ChatOpenAI 固定 45 秒 timeout、1 次 retry 和
+  4,096 最大输出 tokens。
+- 搜索改用异步 Tavily client，只暴露 `general`/`news`、最多 2,000 个字符 query
+  和 5 条结果，执行 15 秒 timeout 与 64 KiB 输出上限。受管文档分析继续执行
+  20,000 个字符硬上限，并计入共享 tool-call budget。
+- Redis cache、rate limit 与 Agent lease 使用 1..30 秒单飞指数退避和有界抖动，
+  故障后可无重启恢复。缓存及 auth/session/default 限流 fail-open；query 限流、
+  Agent 租约和 readiness fail-closed。
+- 新增 `/api/live` 与 `/api/ready`，`/api/health` 保留为 liveness 兼容别名。
+  readiness 浅检查模型必要配置、MySQL、Alembic 唯一 head、Redis 与受管文件根，
+  不调用模型或搜索；FastAPI/LangGraph Compose 和 Container Smoke 使用 readiness。
+- **BREAKING**：任意 Python 执行工具、`ENABLE_CODE_EXECUTION`、Compose 传递、
+  系统提示和注册路径已删除；残留部署变量不能恢复 `execute_python_code`。
+- **BREAKING**：搜索 schema 不再暴露 raw content 或 images/videos/files topic；
+  只接受 `general`/`news`，输出只保留有界字段。
+- Python 3.12.9 下全量 pytest **452 项通过**，迁移定向测试 **8 项通过**，
+  release contract pytest **159 项通过**；isort、发布契约脚本、Alembic 唯一
+  head、Compose 和差异检查通过。
+- Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、`format:check`、
+  `build` 全部通过。
+- Docker Engine 29.4.1、Docker Desktop 4.71.0、Compose 5.1.3 下 empty、head、
+  legacy 与 Redis stop/start canary 全部通过；Redis 停止时 live 保持 200、ready
+  转 503、Agent fail-closed，恢复后后端无需重启。模型/搜索调用为 0，容器、网络、
+  卷、临时配置和生成物已清理。
+- 历史 18 项新增关闭 `AUD-004`、`AUD-008`、`AUD-009`，当前开放
+  **8 项：0 P0 / 1 P1 / 6 P2 / 1 P3**；`RR-004` 以删除运行时代码执行收口，
+  `RR-006` 以固定 Redis 策略矩阵和自动恢复收口。生产仍为 **NO-GO**：唯一剩余
+  P1 `AUD-007` 与 `RR-001` 的迁移/备份恢复边界尚未关闭，且本轮远端门禁待验证。
+
 ### 隔离文件摄取（2026-08-17，本地与 Hosted 完成）
 
 - `isolate-file-ingestion` 已完成本地验收，成为第 10 个已完成 change-id；Roadmap
@@ -193,8 +235,8 @@
   稳定 `403`，管理员不能修改自己的角色，也不能跨用户访问会话。
 - 新增人工 `scripts/bootstrap_admin.py --user-id <id>` 引导；只允许把既有用户
   提升为管理员，不接受用户名、邮箱、密码或 Token，重复执行保持幂等。
-- 管理员列表、角色变更、授权拒绝、人工引导和任意 Python 执行工具启用接入 UTC
-  结构化审计，身份仅使用 JWT 密钥派生的 HMAC 引用。
+- 管理员列表、角色变更、授权拒绝和人工引导接入 UTC 结构化审计，身份仅使用 JWT
+  密钥派生的 HMAC 引用。
 - 注册和 `/api/auth/me` 返回固定角色，前端严格解析但不以浏览器角色字段替代后端
   授权；CORS 白名单增加 `PATCH` 支持。
 - 发布契约新增默认角色、角色约束、环境自动提权和审计身份字段门禁；全量确定性
@@ -243,13 +285,14 @@
   服务地址。
 - 完整镜像构建和冒烟依赖 Docker Desktop Linux Engine、充足系统盘空间以及本地
   有效模型/JWT 配置。环境不满足时，不得把静态检查结果等同于容器发布证据。
-- LangGraph 本地服务仍使用 noop 认证；任意 Python 代码执行工具虽默认关闭，但
-  显式启用后仍不具备安全沙箱。
+- 当前锁定的容器运行时 `langgraph-api 0.7.28` 已 EOL；升级、依赖锁定和兼容
+  回归仍归入 `AUD-006`/`stabilize-delivery-baseline`。
 - 当前诊断能力使用本地轮转日志和 Docker 日志，不包含 OpenTelemetry、
   Prometheus、Grafana、长期存储或自动告警通知；这些能力需要单独评审访问控制、
   成本和保留周期。
-- 请求限流为单实例本地 Redis 固定窗口，非分布式令牌桶，也无自动封禁或黑名单；
-  Redis 故障时 fail-open 放行，可能在缓存不可用期间放宽配额，需依赖降级事件监控。
+- 请求限流为 Redis 固定窗口，非分布式令牌桶，也无自动封禁或黑名单；Redis 故障
+  时 auth/session/default 按既定策略 fail-open，高成本 query 与 Agent 保护
+  fail-closed。多实例全局配额与高可用 Redis 拓扑仍未建立。
 - 版本化迁移当前是单 head 本地基线，测试用 SQLite、生产用 MySQL；尚无自动数据
   备份与回滚演练流程，升级前的备份与恢复须人工在受控环境执行。
 - 当前 RBAC 只有固定 `user`/`admin` 角色，没有管理员前端、自定义角色、用户删除

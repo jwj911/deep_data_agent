@@ -11,9 +11,12 @@ from data_agent.observability.context import (get_or_create_request_id,
 from data_agent.observability.events import emit_event
 from data_agent.observability.middleware import REQUEST_ID_HEADER
 from data_agent.services.auth_service import ALGORITHM
-from data_agent.services.rate_limit_service import global_rate_limit_service
+from data_agent.services.rate_limit_service import (PROTECTION_DEGRADED,
+                                                    PROTECTION_UNAVAILABLE,
+                                                    global_rate_limit_service)
+from data_agent.services.redis_recovery import AGENT_PROTECTION_UNAVAILABLE
 
-_HEALTH_PATH = "/api/health"
+_HEALTH_PATHS = frozenset({"/api/health", "/api/live", "/api/ready"})
 
 
 def _resolve_scope(path: str) -> tuple[str, int, int]:
@@ -122,8 +125,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        # 健康检查完全豁免，不计入任何配额。
-        if path == _HEALTH_PATH:
+        # Health probes never consume request quota. Readiness performs its
+        # own explicit Redis check after this short circuit.
+        if path in _HEALTH_PATHS:
             return await call_next(request)
 
         scope, limit, window_seconds = _resolve_scope(path)
@@ -136,11 +140,52 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             window_seconds=window_seconds,
         )
 
+        if decision.protection_status == PROTECTION_UNAVAILABLE:
+            request_id = get_request_id() or get_or_create_request_id()
+            response = JSONResponse(
+                status_code=503,
+                content={
+                    "detail": {
+                        "code": AGENT_PROTECTION_UNAVAILABLE,
+                        "message": (
+                            "Agent protection is temporarily unavailable"
+                        ),
+                        "request_id": request_id,
+                    }
+                },
+            )
+            response.headers["Retry-After"] = str(decision.retry_after)
+            response.headers["X-RateLimit-Limit"] = str(decision.limit)
+            response.headers["X-RateLimit-Remaining"] = "0"
+            response.headers["X-RateLimit-Protection"] = (
+                decision.protection_status
+            )
+            response.headers[REQUEST_ID_HEADER] = request_id
+            emit_event(
+                rate_limit_logger,
+                "rate_limit.decision",
+                scope=scope,
+                identity_kind=identity_kind,
+                decision="denied",
+                outcome="rejected",
+                error_code=AGENT_PROTECTION_UNAVAILABLE,
+                limit=decision.limit,
+                remaining=0,
+                retry_after=decision.retry_after,
+                window_seconds=decision.window_seconds,
+                protection_status=decision.protection_status,
+                protection_reason=decision.protection_reason,
+            )
+            return response
+
         if decision.allowed:
             response = await call_next(request)
             response.headers["X-RateLimit-Limit"] = str(decision.limit)
             response.headers["X-RateLimit-Remaining"] = str(
                 decision.remaining
+            )
+            response.headers["X-RateLimit-Protection"] = (
+                decision.protection_status
             )
             emit_event(
                 rate_limit_logger,
@@ -148,10 +193,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 scope=scope,
                 identity_kind=identity_kind,
                 decision="allowed",
-                outcome="success",
+                outcome=(
+                    "degraded"
+                    if decision.protection_status == PROTECTION_DEGRADED
+                    else "success"
+                ),
                 limit=decision.limit,
                 remaining=decision.remaining,
                 window_seconds=decision.window_seconds,
+                protection_status=decision.protection_status,
+                protection_reason=decision.protection_reason,
             )
             return response
 
@@ -169,6 +220,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["Retry-After"] = str(decision.retry_after)
         response.headers["X-RateLimit-Limit"] = str(decision.limit)
         response.headers["X-RateLimit-Remaining"] = "0"
+        response.headers["X-RateLimit-Protection"] = (
+            decision.protection_status
+        )
         response.headers[REQUEST_ID_HEADER] = request_id
         emit_event(
             rate_limit_logger,
@@ -181,5 +235,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             remaining=0,
             retry_after=decision.retry_after,
             window_seconds=decision.window_seconds,
+            protection_status=decision.protection_status,
+            protection_reason=decision.protection_reason,
         )
         return response

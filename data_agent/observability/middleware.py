@@ -11,6 +11,7 @@ from data_agent.observability.context import (bind_request_id,
 from data_agent.observability.events import emit_event
 
 REQUEST_ID_HEADER = "X-Request-ID"
+_HEALTH_PATHS = frozenset({"/api/health", "/api/live", "/api/ready"})
 
 
 def _route_template(request: Request) -> str:
@@ -69,7 +70,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             finally:
                 event_name = (
                     "health.check"
-                    if _route_template(request) == "/api/health"
+                    if _route_template(request) in _HEALTH_PATHS
                     else "http.request.completed"
                 )
                 emit_event(

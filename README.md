@@ -2,10 +2,10 @@
 
 Deep Data Agent 是一个前后端分离的 AI 数据探索项目。后端同时提供
 FastAPI REST 服务和 LangGraph 图服务，前端使用 Next.js 静态导出，
-MySQL 用于用户、会话、消息与受管文件 metadata，Redis 用于可降级缓存。第一方注册、
-登录与角色由 FastAPI 提供；同一 JWT 同时保护 FastAPI Agent 入口与
-LangGraph thread/run 所有权。前端、FastAPI、LangGraph、Agent、
-工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊断链路。
+MySQL 用于用户、会话、消息与受管文件 metadata，Redis 用于缓存、限流、Agent
+并发租约与就绪保护。第一方注册、登录与角色由 FastAPI 提供；同一 JWT 同时保护
+FastAPI Agent 入口与 LangGraph thread/run 所有权。前端、FastAPI、LangGraph、
+Agent、工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊断链路。
 
 ## 服务与访问地址
 
@@ -13,9 +13,9 @@ LangGraph thread/run 所有权。前端、FastAPI、LangGraph、Agent、
 | --- | --- | --- |
 | 前端 | `http://localhost:3000/data_copilot/` | 聊天界面 |
 | LangGraph | `http://localhost:2024/info` | 线程与流式 Agent API |
-| FastAPI | `http://localhost:8000/api/health` | REST API 与健康检查 |
+| FastAPI | `http://localhost:8000/api/live` | REST API 与进程存活检查 |
 | MySQL | `localhost:3306` | 用户、会话和消息持久化 |
-| Redis | `localhost:6379` | Agent 与搜索结果缓存 |
+| Redis | `localhost:6379` | 缓存、限流、Agent 并发租约与就绪保护 |
 
 ## 环境准备
 
@@ -34,6 +34,33 @@ Copy-Item .env.example .env
 `MOONSHOT_API_KEY` 是模型查询所需配置，`TAVILY_API_KEY` 仅在调用互联网
 搜索工具时需要。示例文件中的占位值不会被当作有效密钥；真实 API Key、
 JWT 密钥、密码和 Token 只能写入本地 `.env` 或部署环境，不能写入文档或提交。
+
+Agent、模型与搜索的默认预算如下。模型与搜索上限只能收紧；Agent 配置必须为
+正整数，并满足模型/搜索 timeout 不超过 run deadline、单用户并发不超过全局并发、
+租约 TTL 大于 run deadline 等关系：
+
+| 配置 | 默认值 | 作用 |
+| --- | --- | --- |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` / `MODEL_MAX_RETRIES` / `MODEL_MAX_OUTPUT_TOKENS` | 45 秒 / 1 次 / 4,096 tokens | 单次模型请求预算 |
+| `AGENT_QUERY_MAX_CHARS` / `AGENT_RESPONSE_MAX_CHARS` | 8,000 / 32,000 个字符 | FastAPI 输入与最终响应上限 |
+| `AGENT_RUN_TIMEOUT_SECONDS` / `AGENT_RECURSION_LIMIT` | 60 秒 / 25 层 | run 总 deadline 与递归上限 |
+| `AGENT_MODEL_CALL_LIMIT` / `AGENT_TOOL_CALL_LIMIT` | 8 次 / 12 次 | 每个 run 的模型与工具调用上限 |
+| `AGENT_GLOBAL_CONCURRENCY_LIMIT` / `AGENT_USER_CONCURRENCY_LIMIT` | 4 / 1 | Redis 原子全局与用户租约上限 |
+| `AGENT_CONCURRENCY_WAIT_SECONDS` / `AGENT_CONCURRENCY_LEASE_TTL_SECONDS` | 1 秒 / 75 秒 | 租约等待与异常回收边界 |
+| `SEARCH_QUERY_MAX_CHARS` / `SEARCH_MAX_RESULTS` | 2,000 个字符 / 5 条 | 搜索输入与结果数上限 |
+| `SEARCH_TIMEOUT_SECONDS` / `SEARCH_MAX_OUTPUT_BYTES` | 15 秒 / 65,536 字节（64 KiB） | 搜索调用与序列化输出上限 |
+
+Redis 连接故障后按 `REDIS_RECOVERY_INITIAL_BACKOFF_SECONDS=1` 到
+`REDIS_RECOVERY_MAX_BACKOFF_SECONDS=30` 的指数退避执行单飞探测，默认抖动比例
+`REDIS_RECOVERY_JITTER_RATIO=0.2`；恢复后无需重启。固定策略为：
+
+| 调用面 | Redis 不可用时 |
+| --- | --- |
+| Agent/搜索缓存 | fail-open 为 miss/未写入 |
+| `auth` / `session` / `default` 限流 | fail-open，并记录脱敏降级状态 |
+| `/api/query` 限流 | fail-closed，返回 503 |
+| FastAPI/LangGraph Agent 并发租约 | fail-closed，返回 `agent_protection_unavailable` |
+| `/api/ready` | 返回 503，固定标记 Redis 未就绪 |
 
 ## 本地开发
 
@@ -132,6 +159,16 @@ docker compose --env-file .env -f docker-config/docker-compose.yml down
 ```powershell
 docker compose --env-file .env -f docker-config/docker-compose.yml down -v
 ```
+
+健康端点采用分层语义：
+
+- `GET /api/live` 只证明进程事件循环可响应，不访问 MySQL、Redis、Agent、模型或
+  搜索；`GET /api/health` 暂时保留为同语义兼容别名。
+- `GET /api/ready` 浅检查模型必要配置、MySQL `SELECT 1`、Alembic 唯一 head、
+  Redis 和受管文件根。全部就绪返回 200，任一组件失败返回 503；响应只包含固定
+  组件状态和请求 ID。
+- FastAPI Compose healthcheck 使用 `/api/ready`；LangGraph 同时检查 `/info`
+  与本地 readiness helper。健康检查不调用模型或搜索。
 
 ## 认证边界
 
@@ -247,10 +284,10 @@ python scripts/bootstrap_admin.py --user-id <用户 ID>
 脚本只允许把既有用户提升为 `admin`，重复执行保持幂等，不接受用户名、邮箱、
 密码或 Token。角色变更后无需重新签发 JWT；后续请求会从数据库加载最新角色。
 
-管理员列表、角色变更、引导操作、授权拒绝和任意 Python 执行工具启用均写入现有
-UTC 结构化日志。用户身份只记录由服务端 JWT 密钥派生的 HMAC 引用，不记录原始
-用户 ID、用户名、邮箱、Token、IP 或请求体。本轮不提供管理员前端界面、可编辑
-角色、跨用户会话访问、长期审计数据库或外部 SIEM。
+管理员列表、角色变更、引导操作和授权拒绝均写入现有 UTC 结构化日志。用户身份
+只记录由服务端 JWT 密钥派生的 HMAC 引用，不记录原始用户 ID、用户名、邮箱、
+Token、IP 或请求体。本轮不提供管理员前端界面、可编辑角色、跨用户会话访问、
+长期审计数据库或外部 SIEM。
 
 ## 请求限流
 
@@ -263,15 +300,15 @@ FastAPI 层在请求 ID 绑定之后、业务处理之前，对认证端点、�
 超限不影响另一个身份。
 
 超限返回稳定 `429`，错误体为 `{code: "rate_limited", message, request_id}`，并
-携带 `Retry-After` 秒数；窗口重置后同一身份恢复放行。健康检查 `/api/health`
-永不被限流，也不计入任何配额。
+携带 `Retry-After` 秒数；窗口重置后同一身份恢复放行。`/api/live`、
+`/api/health` 和 `/api/ready` 永不被限流，也不计入任何配额。
 
 `TRUSTED_PROXY_COUNT` 默认 `0`，即不信任 `X-Forwarded-For`，来源以直接连接地址
-为准，伪造转发头不会改变计数键。Redis 不可用或计数出错时限流 **fail-open**，
-放行请求并记录 `rate_limit.degraded` 降级事件，不因限流组件故障阻断业务。限流
-事件只含维度类别、路由模板、配额键摘要、窗口与计数，不记录原始 Token、明文
-来源、提示词或业务数据。设 `RATE_LIMIT_ENABLED=false` 可整体关闭限流，关闭时
-不产生 `429` 也不调用 Redis。
+为准，伪造转发头不会改变计数键。Redis 不可用或计数出错时，
+`auth`/`session`/`default` 限流 fail-open；高成本 `/api/query` 限流 fail-closed，
+在 Agent 前返回 503。两类路径都记录固定、脱敏的保护状态，事件不含原始 Token、
+明文来源、提示词或业务数据。设 `RATE_LIMIT_ENABLED=false` 可整体关闭 HTTP
+固定窗口限流，但不会关闭 Agent 的 Redis 并发租约。
 
 当前限流是单实例本地 Redis 固定窗口，不是分布式令牌桶，也不含自动封禁或黑名单。
 相关环境变量与默认值如下：
@@ -325,29 +362,39 @@ HTTP 错误率、平均/最大/P95 延迟、缓存降级和模型失败，并产
 但不会上传或外发。输入中的无效行只计数，不回显原文；报告仍须在分享前人工
 复核，且不得使用包含真实业务数据的日志做自动验证。
 
-## 高风险工具
+## Agent 资源预算
 
-任意 Python 代码执行工具默认关闭：
+Agent 默认限制为：run 60 秒、递归 25 层、模型调用 8 次、工具调用 12 次，
+全局并发 4、单用户并发 1，租约等待 1 秒、TTL 75 秒。FastAPI 查询最多
+8,000 个字符、最终响应最多 32,000 个字符；timeout、取消、并发拒绝、模型/工具
+调用超限和超大响应均使用稳定错误码，失败结果不写缓存。客户端 config/context
+和管理员角色都不能扩大预算。
 
-```dotenv
-ENABLE_CODE_EXECUTION=false
-```
+ChatOpenAI 单次请求固定为 45 秒 timeout、1 次 retry 和 4,096 最大输出 tokens。
+互联网搜索只允许 `general`/`news`，query 最多 2,000 个字符、结果最多 5 条、
+15 秒 timeout，输出最多 64 KiB；模型 schema 不再暴露 raw content 或
+images/videos/files topic。`analyze_document` 继续限制为 20,000 个字符，并计入
+同一 tool-call 总预算。
 
-只有在受控的本地环境中人工设置 `ENABLE_CODE_EXECUTION=true` 才会注册该工具。
-当前实现不是安全沙箱，不应在面向不可信用户的环境中启用。
+任意 Python 代码执行已永久移出运行时。部署环境中残留的
+`ENABLE_CODE_EXECUTION` 会被忽略，不能注册或调用 `execute_python_code`。
 
 ## 验证清单
 
 后端确定性测试不调用真实模型或搜索服务。测试覆盖健康检查、LangGraph JWT Auth、
 thread/run owner 默认拒绝、assistant 只读边界、Agent 双层授权与租户缓存、
 受管文件格式/配额/事务/owner/路径/符号链接/哈希/保留、LangGraph 导出、
-缺失模型配置、Redis 降级、代码执行默认关闭、查询错误映射、第一方认证、CORS、
+缺失模型配置、Redis 降级、代码执行残留变量无效、查询错误映射、第一方认证、CORS、
 双用户会话隔离、RBAC 管理、管理员引导、角色迁移、时间字段兼容、请求 ID、
 结构化脱敏事件、诊断报告、发布镜像资产和容器冒烟辅助逻辑：
 
 ```powershell
 python -m pytest
+python -m pytest -q tests/test_migrations.py
+python -m pytest -q tests/test_release_contracts.py
 python -m isort --check-only data_agent tests scripts
+python scripts/check_release_contracts.py
+python -m alembic -c alembic.ini heads
 ```
 
 前端质量门禁：
@@ -370,15 +417,21 @@ git diff --check
 git status --short
 ```
 
-`isolate-file-ingestion` 已取得 2026-08-17 本地证据：Python 3.12.9 下 295 项
-测试通过，其中迁移定向测试 8 项；isort、发布契约、Compose 解析和差异检查通过。
-Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告 `lint`、`format:check` 和
-`build` 通过；构建不再访问 Google Fonts。Docker Linux Engine 从当前源码重建
-镜像后，空库双用户、head 重启和已知旧基线升级三场景均通过。双用户场景覆盖
-上传/列表/分析/删除、FastAPI/LangGraph 共享卷、跨用户与管理员拒绝、非法 JSON、
-超限文件以及原 Agent 租户边界。无凭据 Chromium mock 另验证附件预览和草稿删除。
-该过程只使用专用假配置与脱敏文本，不发送业务查询、未调用模型或搜索外部服务；
-容器、网络、卷、临时配置及生成物均已清理。
+`bound-agent-resource-use` 已取得 2026-08-21 本地证据：Python 3.12.9 下全量
+**452 项通过**，迁移定向测试 **8 项通过**，release contract pytest
+**159 项通过**；isort、发布契约脚本、Alembic 唯一 head、Compose 和
+`git diff --check` 通过。Node.js 22.22.2、pnpm 10.5.1 下 `typecheck`、零警告
+`lint`、`format:check` 和 `build` 全部通过。
+
+Docker Engine 29.4.1、Docker Desktop 4.71.0、Compose 5.1.3 下，当前源码镜像的
+empty、head、legacy 场景以及 Redis stop/start canary 全部通过。canary 证明 Redis
+停止时 liveness 保持 200、readiness 转为 503、Agent fail-closed，Redis 恢复后
+后端无需重启即重新 ready。全程模型与搜索调用均为 0，容器、网络、卷、临时配置
+和生成物已清理。当前 change-id 尚未提交，远端 Hosted 验证待后续完成；本段不绑定
+implementation SHA 或 run ID。
+
+以下提交与运行标识只记录既有 change-id 的历史远端证据，不属于当前尚未提交的
+`bound-agent-resource-use`：
 
 implementation SHA `9fe0c40bd66a01db427fe37169a0ec0f65f24f85` 的 GitHub Actions
 run `32008059164` 为 `completed/success`；Backend、Frontend、Release Contracts、
@@ -387,7 +440,8 @@ legacy 升级和 cleanup 均成功。
 
 前一 `restore-runtime-release-gates` implementation SHA
 `30e7992fa48c350a0b0ae8a6faa12c80cfe2202d` 的 GitHub Actions run
-`31959537002` 已为 `completed/success`。本 change-id implementation SHA
+`31959537002` 已为 `completed/success`。`secure-agent-tenant-boundaries`
+implementation SHA
 `9699f90f6fd2a90d63d82728208fb656cb4fe8e3` 的 run `31994602064` 也为
 `completed/success`；Backend、Frontend、Release Contracts、Container Smoke
 四个 Job 全部成功，Container Smoke 的空库双用户、head 重启、legacy 升级和
@@ -411,9 +465,11 @@ fail-closed 边界。
 ## 发布文档
 
 - `.trae/documents/project_analysis.md`：2026-08-12 项目整体审计快照、当前架构、
-  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 11 项
-  （0 P0 / 3 P1 / 7 P2 / 1 P3）；生产发布判断仍为 NO-GO。
-- `.trae/documents/roadmap.md`：10 个已完成 change-id 和 9 个未启动候选迭代。
+  历史识别的 18 个 2/2 高置信度问题，以及当前开放的 8 项
+  （0 P0 / 1 P1 / 6 P2 / 1 P3）；生产发布判断仍为 NO-GO。
+- `.trae/documents/roadmap.md`：11 个已完成或本地完成的 change-id 和 8 个候选
+  迭代；`bound-agent-resource-use` 远端待验证，下一候选为
+  `prove-data-recovery`。
 - `CHANGELOG.md`：版本化行为变化、验证证据与已知风险。
 - `.trae/specs/audit-project-roadmap/`：项目整体审计与后续迭代规划规格。
 - `.trae/specs/add-rbac-audit/`：固定角色、双层授权、管理员 API、人工引导和
