@@ -208,6 +208,16 @@ class ResourceBoundedAgentGraph(CompiledStateGraph):
 
     _agent_lease_manager: AgentLeaseManager
 
+    def __init__(
+        self,
+        *,
+        _agent_lease_manager: AgentLeaseManager,
+        **kwargs: Any,
+    ) -> None:
+        # Pregel.copy reconstructs subclasses from their instance attributes.
+        super().__init__(**kwargs)
+        self._agent_lease_manager = _agent_lease_manager
+
     def stream(
         self,
         input: Any,
@@ -264,11 +274,12 @@ def _apply_graph_resource_bounds(
         for key, value in graph.__dict__.items()
         if key != "__orig_class__"
     }
-    bounded = ResourceBoundedAgentGraph(**attributes)
-    bounded._agent_lease_manager = (
-        lease_manager or global_agent_lease_manager
+    attributes["_agent_lease_manager"] = (
+        lease_manager
+        if lease_manager is not None
+        else global_agent_lease_manager
     )
-    return bounded
+    return ResourceBoundedAgentGraph(**attributes)
 
 
 def _generate_cache_key(query: str, actor_id: int) -> str:
