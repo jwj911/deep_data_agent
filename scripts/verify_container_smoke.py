@@ -791,7 +791,7 @@ def verify_tenant_isolation(
         f"{langgraph_base}/threads/search",
         body={"limit": 10},
     )
-    if status != 403:
+    if status != 401:
         raise SmokeError("anonymous LangGraph request was not rejected")
 
     file_contents = ("managed smoke a", "managed smoke b")
