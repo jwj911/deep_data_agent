@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import subprocess
 import tarfile
@@ -105,8 +106,14 @@ def _volume(context, domain):
 
 
 def _binary(command, *, source=None, target=None):
+    input_options = {"stdin": source}
+    if source is not None:
+        try:
+            source.fileno()
+        except io.UnsupportedOperation:
+            input_options = {"input": source.read()}
     result = subprocess.run(
-        command, stdin=source, stdout=target or subprocess.PIPE,
+        command, **input_options, stdout=target or subprocess.PIPE,
         stderr=subprocess.PIPE, timeout=180,
     )
     if result.returncode:
@@ -122,7 +129,6 @@ def _source_runtime(context, root):
         for path in (root / folder).rglob("*.py")
     }
     expected["requirements.txt"] = digest(root / "requirements.txt")
-    import io
 
     script = (
         "import hashlib,json\nfrom pathlib import Path\n"

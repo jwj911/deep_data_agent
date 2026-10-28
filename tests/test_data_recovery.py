@@ -17,6 +17,27 @@ from verify_container_smoke import SmokeError
 LOCK = "a" * 64
 
 
+@pytest.mark.parametrize("memory_source", [True, False])
+@pytest.mark.parametrize("file_target", [True, False])
+def test_binary_command_preserves_memory_and_file_input(tmp_path, memory_source, file_target):
+    content = b"binary canary\x00\xff\n"
+    path = tmp_path / "input.bin"
+    path.write_bytes(content)
+    output_path = tmp_path / "output.bin"
+    command = [
+        sys.executable, "-B", "-c",
+        "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())",
+    ]
+    with io.BytesIO(content) if memory_source else path.open("rb") as source:
+        if file_target:
+            with output_path.open("wb") as target:
+                data_recovery._binary(command, source=source, target=target)
+            actual = output_path.read_bytes()
+        else:
+            actual = data_recovery._binary(command, source=source)
+    assert actual == content
+
+
 @pytest.mark.parametrize(
     ("bindings", "accepted"),
     [
