@@ -176,6 +176,7 @@ jobs:
           } > "$CI_ENV_FILE"
 
       - name: Build images and verify empty database
+        id: build_smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -222,6 +223,7 @@ jobs:
             --scratch-root "$RUNNER_TEMP"
 
       - name: Verify three-domain backup and fresh restore
+        if: ${{ !cancelled() && steps.build_smoke.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail

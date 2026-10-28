@@ -19,8 +19,6 @@ from types import SimpleNamespace
 from urllib.parse import urlparse
 from uuid import uuid4
 
-import httpx
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -148,6 +146,8 @@ class AttemptTracker:
         self.hook(request)
 
     def clients(self, factory):
+        import httpx
+
         sync, asynchronous = factory()
         sync.event_hooks["request"].append(self.hook)
         asynchronous.event_hooks["request"].append(self.ahook)
