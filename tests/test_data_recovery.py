@@ -11,9 +11,34 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import data_recovery
+import verify_data_recovery
 from verify_container_smoke import SmokeError
 
 LOCK = "a" * 64
+
+
+@pytest.mark.parametrize(
+    ("bindings", "accepted"),
+    [
+        ([{"HostIp": "0.0.0.0", "HostPort": "32777"},
+          {"HostIp": "::", "HostPort": "32777"}], True),
+        ([{"HostIp": "127.0.0.1", "HostPort": "32777"}], True),
+        ([{"HostIp": "0.0.0.0", "HostPort": "32777"},
+          {"HostIp": "::", "HostPort": "32778"}], False),
+        ([{"HostIp": "::1", "HostPort": "32777"}], False),
+        ([{"HostIp": "192.0.2.1", "HostPort": "32777"}], False),
+    ],
+)
+def test_recovery_drill_resolves_only_unambiguous_ipv4_ports(monkeypatch, bindings, accepted):
+    monkeypatch.setattr(data_recovery, "_container", lambda *args: "private-container")
+    monkeypatch.setattr(data_recovery, "_inspect", lambda *args: {
+        "NetworkSettings": {"Ports": {"8000/tcp": bindings}},
+    })
+    if accepted:
+        assert verify_data_recovery._base(None, "fastapi", 8000) == "http://127.0.0.1:32777"
+    else:
+        with pytest.raises(SmokeError, match="recovery_drill_port_invalid"):
+            verify_data_recovery._base(None, "fastapi", 8000)
 
 
 def _tar(path, *, entry="canary.txt", kind=tarfile.REGTYPE):

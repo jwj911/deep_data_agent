@@ -28,10 +28,19 @@ def _compose(context, *args, timeout=180):
 
 def _base(context, service, port):
     inspection = recovery._inspect(recovery._container(context, service))
-    bindings = inspection["NetworkSettings"]["Ports"][f"{port}/tcp"]
-    if len(bindings) != 1:
+    bindings = inspection["NetworkSettings"]["Ports"][f"{port}/tcp"] or []
+    ports = {binding.get("HostPort") for binding in bindings}
+    addresses = {binding.get("HostIp") for binding in bindings}
+    if (
+        len(ports) != 1
+        or not addresses.intersection({"127.0.0.1", "0.0.0.0"})
+        or not addresses.issubset({"127.0.0.1", "0.0.0.0", "::1", "::"})
+    ):
         raise SmokeError("recovery_drill_port_invalid")
-    return f"http://127.0.0.1:{bindings[0]['HostPort']}"
+    host_port = ports.pop()
+    if not isinstance(host_port, str) or not host_port.isdigit() or not 1 <= int(host_port) <= 65535:
+        raise SmokeError("recovery_drill_port_invalid")
+    return f"http://127.0.0.1:{host_port}"
 
 
 def _request(method, base, path, token, body=None, expected=200):
