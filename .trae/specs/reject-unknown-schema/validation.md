@@ -36,3 +36,14 @@ python -m pytest -q -x tests/test_migrations.py -k unknown_unversioned -p no:cac
 快照不变。反射规范化无须额外修补。进程结束已删除该自有容器。
 
 该门禁不证明备份可用或全域一致恢复。新运行时锁另需独立回归。
+
+## 新锁 Hosted 实证通过（2026-10-28）
+
+完整实施 SHA `1910fdfa8653beb3233e48f0e5d29ac2d1e42514` 的
+[run 40635353761](https://github.com/jwj911/deep_data_agent/actions/runs/40635353761)
+四 Job 均 success。Backend `122640951876` 在新哈希锁下完整
+**733 项通过**，真实 MySQL 8.4 **20 个结构控制例通过**；
+Container Smoke 的空库、head 重启和 known legacy canary 升级成功。
+结构门禁与另行执行的三域独立恢复各自有实证，范围见
+[运行时记录](../stabilize-delivery-baseline/validation.md)。
+不把已知 legacy 支持扩展为任意旧库兼容，生产持久业务仍 NO-GO。

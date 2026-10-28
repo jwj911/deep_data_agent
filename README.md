@@ -435,15 +435,18 @@ CI 门禁。当前源码生产静态构建、前端四门禁、新后端镜像 1
 生产仍 NO-GO。
 
 2026-10-28 新锁门禁使用 Python 3.12 与 API `0.16.8`，Windows 独立环境
-723 项回归通过。实际 Redis/TCP 的父子、并行、重试、摘要共 20 个控制例通过，
-租约取得/释放各 20、最终无 lease key；真实 MySQL 20 个结构控制例通过。
-四个 Hosted Job 检出 PR 精确 head SHA，并验证哈希锁、实际 SDK/TCP、五服务、
-Chromium 认证/对话和独立三域恢复。实际执行结果与限制见
+最终 733 项回归通过，101.15 秒。完整实施 SHA `1910fdfa8653beb3233e48f0e5d29ac2d1e42514`
+的 [Hosted run 40635353761](https://github.com/jwj911/deep_data_agent/actions/runs/40635353761)
+四 Job 全部成功；Linux 后端 733 项、135 个活动包哈希锁匹配，实际
+Redis/TCP 预算和 MySQL 控制各 20 项通过，租约取得/释放各 20、最终无 lease key。
+新锁五服务、Chromium 七项和独立三域恢复通过；恢复实测 31.757 秒，
+确认写入丢失 0，六项损坏/缺失负控与非空目标拒绝通过。实际执行结果与限制见
 [运行时记录](.trae/specs/stabilize-delivery-baseline/validation.md)、
 [预算记录](.trae/specs/enforce-aggregate-agent-budget/validation.md)与
 [恢复记录](.trae/specs/prove-data-recovery/validation.md)。
 本机新锁 Linux 构建因系统盘保护中止；人工快照不提供自动异地备份、
-生产 dev runtime 支持或真实模型效果证据。
+生产 dev runtime 支持或真实模型效果证据，生产持久业务仍 NO-GO。
+最终文档提交自身的精确 SHA 与四 Job 回执见工作区根 `release-gate-evidence.json`。
 
 FastAPI REST `/api/query` 的回答缓存保留 24 小时，但未绑定文件活性、版本及
 失效依赖。`REV-A03` 的用户影响取决于“重新分析当前文件”或“显式历史快照”

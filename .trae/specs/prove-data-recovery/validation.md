@@ -38,3 +38,51 @@ RPO/RTO 承诺，不能据此裁定生产持久业务 GO。
 最终 Windows 新锁全量 **723 项通过，131.69 秒**；本轮完整独立恢复、
 负控目标无写入、各域逐值对比和耗时等待对应精确 SHA 的 Hosted 实证。
 该提交包含演练入口及门禁，不在提交前写入尚未取得的成功结果。
+
+## Hosted 修复轮（2026-10-28）
+
+上述未提交和待执行描述保留其记录时点。后续实际运行按提交分别裁定：
+
+- `e665a4b` 的 run `40633932174`：Chromium 七项 UI 通过；恢复在
+  `recovery_drill_port_invalid` 拒绝，尚未创建备份。
+- `2f8e348` 的 run `40634732017`：四个 Job 中 Backend、Frontend、
+  Release Contracts 成功；729 项后端回归通过，Chromium 七项再次通过。
+  恢复准备篡改 canary 时发生 `io.UnsupportedOperation: fileno`，
+  未进入备份；Container Smoke 失败且自有资源清理成功。
+- 双栈端口修复按唯一宿主端口去重，保留 IPv4 可达性与非歧义拒绝。
+  内存脚本输入修复保留真实文件的流式传输，仅将无文件描述符的内存字节
+  交给子进程输入管道。真实子进程四组合回归先 2 红 / 2 绿，修后恢复、
+  运行时锁和浏览器定向 **44 项通过，18.50 秒**。
+
+这些修复结果只证明相应接口；完整三域恢复仍以之后成功的精确提交
+Hosted 运行、负控和逐值比较为准。
+
+## 独立恢复实证通过
+
+完整 SHA `1910fdfa8653beb3233e48f0e5d29ac2d1e42514` 的
+[run 40635353761](https://github.com/jwj911/deep_data_agent/actions/runs/40635353761)
+四 Job 均为 success；Container Smoke `122640951730` 的
+`Verify three-domain backup and fresh restore` 成功，返回
+`data_recovery: passed` 和 `independent_target: true`。
+
+来源停写并正常关闭后，备份 MySQL、LangGraph 历史/store 卷及受管文件卷；
+恢复到新 Compose 项目、空数据库和新文件卷，使用空 Redis。
+快照用时 **4.754 秒**；从创建目标到恢复、登录及全部验证完成
+**31.757 秒**，迁移为 `b6f4e8c2a9d1`，确认写入丢失 **0**。
+这两个时间是本次合成数据演练测量，不能外推生产数据量或长期 RPO/RTO。
+
+- 用户、角色及 REST/file metadata 原始业务行完全相同；新登录和管理员角色
+  正确，REST 会话及消息逐值相同。
+- thread 的 state/history 逐值相同；UUID 受管引用、checkpoint 虚拟文件和
+  独立进程读取的磁盘 store 值保持；文件字节与摘要校验通过。
+- 另一用户及管理员访问 owner 会话、文件、thread/state/history 均拒绝；
+  删除/过期返回 404，篡改文件返回 503，store API 保持 403。
+- 每个域实际执行缺失和篡改恢复，共 **6 项负控**；均在写入前拒绝，
+  目标数据库保持为空。完整恢复后再次调用被非空目标保护拒绝，
+  业务行保持不变。
+
+独立目标 teardown、来源重新启动、head 重启、known legacy 升级和最终
+自有资源清理均成功。完整脱敏回执位于工作区根
+`release-gate-implementation-evidence.json`；备份业务归档只存在 runner 临时目录。
+公开前端 Origin 的灾难切换、自动异地备份和生产运行时不在本次通过范围，
+生产持久业务仍 NO-GO。

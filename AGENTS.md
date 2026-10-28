@@ -27,11 +27,13 @@ D:\Code\deep_data_agent\deep_data_agent
 
 ## 2. 项目现状
 
-2026-10-28 当前门禁工作树已经实现 run 合计账本、未知 schema 显式拒绝、
-三域停写备份/空目标恢复，以及 Python 3.12 跨平台哈希依赖锁。独立 Windows
-环境 723 项回归通过；真实 Redis/TCP 20 个预算控制例及 MySQL 20 个结构控制例
-通过。四个 Hosted Job 检出 PR head SHA；新锁 Linux 五服务、浏览器与独立恢复
-以对应 SHA 的实际结果裁定，不沿用下列历史成功记录。验证入口见
+2026-10-28 已实施 run 合计账本、未知 schema 拒绝、三域停写恢复及
+Python 3.12 跨平台哈希锁。实施 SHA `1910fdf` 的 Hosted 四 Job 全部成功：
+Linux 后端 733 项、真实 Redis/TCP 20 个预算控制例、MySQL 20 个结构控制例、
+新锁五服务、Chromium 七项及三域独立恢复通过；恢复实测 31.757 秒，
+确认写入丢失 0、六项备份负控和非空目标拒绝通过。Windows 新锁全量
+733 项也通过，首轮导入失败与重验条件留在运行时记录。最终文档提交自身
+精确 SHA 的结果按工作区根 `release-gate-evidence.json` 核对。验证入口见
 [运行时记录](.trae/specs/stabilize-delivery-baseline/validation.md)、
 [预算记录](.trae/specs/enforce-aggregate-agent-budget/validation.md)、
 [恢复记录](.trae/specs/prove-data-recovery/validation.md)。

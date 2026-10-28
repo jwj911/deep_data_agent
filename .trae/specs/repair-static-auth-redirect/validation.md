@@ -98,3 +98,17 @@ python -I -B scripts/verify_static_frontend_http.py --base-url http://127.0.0.1:
 本轮工作树尚无 exact-SHA Hosted 证据。父子/summary/retry 合计预算、未知 schema
 拒绝、身份/thread/file 一致恢复、API EOL 与依赖锁定、真实模型和业务效果仍需
 各自验收。即使本机联调通过，生产或不可重建持久业务仍为 **NO-GO**。
+
+## 后续新锁 Hosted 验收（2026-10-28）
+
+上述为本机认证修复阶段的记录，保留原时点与条件。后续完整实施 SHA
+`1910fdfa8653beb3233e48f0e5d29ac2d1e42514` 的
+[run 40635353761](https://github.com/jwj911/deep_data_agent/actions/runs/40635353761)
+四 Job 均 success。新锁源码镜像的五服务、真实静态认证跳转、Redis 恢复、
+head 重启和 known legacy 升级通过；Chromium 通过匿名跳转保留端口、
+注册登录、渲染答案且 run success、深链接刷新、退出清 Token、错误密码拒绝、
+再次登录七项。受控 TCP/SSE 模型实际收到 1 次请求，结束后 0 lease key。
+
+新锁完整后端 733 项、预算/MySQL 各 20 项及独立三域恢复另行通过；
+详细证据与范围见[运行时记录](../stabilize-delivery-baseline/validation.md)。
+工程门禁通过不等同生产运行时、自动异地备份或真实模型效果验收。
