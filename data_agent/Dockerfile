@@ -8,7 +8,7 @@ WORKDIR /app
 # The build context is the repository root so the package and shared runtime
 # files retain the same paths used by local development.
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY data_agent ./data_agent
 COPY alembic.ini ./

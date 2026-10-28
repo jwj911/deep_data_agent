@@ -1,0 +1,442 @@
+{
+  "setup": {
+    "ports": {
+      "mysql": 9257,
+      "redis": 9258,
+      "fastapi": 9259,
+      "langgraph": 9264,
+      "frontend": 9265
+    },
+    "snapshot": "current working tree; secrets/caches excluded"
+  },
+  "setup-correction": {
+    "cause": "synthetic environment set MODEL_MAX_RETRIES=0; product requires positive integer",
+    "changed": "test setting restored to default 1; product unchanged"
+  },
+  "linux-regression": {
+    "status": "passed",
+    "summary": "194 passed, 1 warning in 17.24s",
+    "pip_check": "passed"
+  },
+  "tenant-isolation": {
+    "status": "passed",
+    "database": "empty migrated to head",
+    "checks": [
+      "two users and admin",
+      "managed files shared by backends",
+      "owner isolation",
+      "oversized/invalid file rejection",
+      "thread/history/run isolation",
+      "REST sessions not dual written"
+    ]
+  },
+  "graph-lifecycle": {
+    "status": "passed",
+    "checks": [
+      "anonymous denied",
+      "other owner/admin denied",
+      "reserved identity rejected 422",
+      "wait final success",
+      "checkpoint answer retained",
+      "wait release immediate",
+      "stream final success",
+      "stream release immediate",
+      "real cancellation final interrupted",
+      "cancel release immediate",
+      "timeout stable agent_timeout and final error",
+      "timeout release immediate",
+      "FastAPI real factory graph success and release"
+    ],
+    "lease_keys": 0
+  },
+  "lease-events": {
+    "services": {
+      "langgraph": {
+        "acquired": 5,
+        "released": 5
+      },
+      "fastapi": {
+        "acquired": 1,
+        "released": 1
+      }
+    },
+    "context_reset_errors": 0
+  },
+  "redis-canary": {
+    "status": "passed",
+    "backend_restarted": false,
+    "checks": [
+      "ready fail closed",
+      "live 200",
+      "recovery",
+      "second fault",
+      "recovery"
+    ]
+  },
+  "build": {
+    "status": "passed",
+    "images": {
+      "backend": "sha256:c706e58617023544b4066a9bcdc971bec1d2d524c08f041b8c195054c43d30ee",
+      "frontend": "sha256:3a5363b7538f46f8d586e54f1c64e15e0c0a1a281f6e9feb8024b6b8cf44609d"
+    },
+    "frontend_gates": [
+      "typecheck",
+      "lint zero warnings",
+      "format:check",
+      "production build"
+    ]
+  },
+  "topology": {
+    "services": {
+      "fastapi": {
+        "image": "dda-auth-validation:backend",
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "published": "9259",
+            "target": 8000
+          }
+        ],
+        "command": [
+          "uvicorn",
+          "data_agent.agent_server:app",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000"
+        ]
+      },
+      "frontend": {
+        "image": "dda-auth-validation:frontend",
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "published": "9265",
+            "target": 80
+          }
+        ],
+        "command": null
+      },
+      "langgraph": {
+        "image": "dda-auth-validation:backend",
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "published": "9264",
+            "target": 2024
+          }
+        ],
+        "command": [
+          "langgraph",
+          "dev",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "2024",
+          "--no-browser",
+          "--no-reload",
+          "--allow-blocking",
+          "--config",
+          "langgraph.json"
+        ]
+      },
+      "mysql": {
+        "image": "mysql:8.4",
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "published": "9257",
+            "target": 3306
+          }
+        ],
+        "command": null
+      },
+      "redis": {
+        "image": "redis:7-alpine",
+        "ports": [
+          {
+            "host_ip": "127.0.0.1",
+            "published": "9258",
+            "target": 6379
+          }
+        ],
+        "command": null
+      }
+    },
+    "project": "dda-auth-20261028",
+    "controlled_model": "HTTP/SSE transport inside langgraph container",
+    "bridge_ip_masquerade": false,
+    "timeouts_seconds": 5,
+    "lease_ttl_seconds": 75,
+    "model_max_retries": 1
+  },
+  "services": {
+    "status": "passed",
+    "healthy": 5
+  },
+  "fingerprints": {
+    "data_agent/services/agent_service.py": "f8478d329f455434ce3c2a6421dbdc18b355d00f0373a9912a6cab89144ad20b",
+    "data_agent/services/agent_lease.py": "11db15a42d8caae0e1e0fb579452badf92268d82ad6d7e663b23206e611a1b92",
+    "data_agent/agent_graph.py": "c0530b9523930d89b514c088ab5dc4c73a52d8989246d9d160c02490e9ea93a9",
+    "requirements.txt": "bf80dd7af617bcdfca28f2044f71eabd32691b7d61fc2640ffe93186522f2022",
+    "agent_chatui/nginx.conf": "799b1495aecc5117d74630a8ba5cac784f87d888a01904a35679ebe97581b363"
+  },
+  "versions": {
+    "pip": "25.0.1",
+    "pathspec": "1.1.1",
+    "httpx": "0.28.1",
+    "opentelemetry-api": "1.45.1",
+    "opentelemetry-semantic-conventions": "0.66b1",
+    "python-dateutil": "3.0.0",
+    "jiter": "0.18.0",
+    "ecdsa": "0.19.2",
+    "langgraph-cli": "0.4.40",
+    "websockets": "17.3",
+    "langgraph-prebuilt": "1.1.1",
+    "uvicorn": "0.54.0",
+    "opentelemetry-proto": "1.45.1",
+    "idna": "3.20",
+    "h11": "0.16.0",
+    "yarl": "1.25.1",
+    "Mako": "1.4.3",
+    "truststore": "0.10.5",
+    "typing_extensions": "4.16.0",
+    "jsonschema_rs": "0.29.1",
+    "opentelemetry-exporter-otlp-proto-common": "1.45.1",
+    "pycparser": "3.12",
+    "langchain-protocol": "0.0.20",
+    "anthropic": "1.17.0",
+    "sniffio": "1.3.1",
+    "cloudpickle": "3.1.2",
+    "langgraph-checkpoint": "4.3.1",
+    "passlib": "1.7.4",
+    "httpx-sse": "0.4.3",
+    "aiosignal": "1.4.0",
+    "langchain-community": "0.4.2",
+    "opentelemetry-exporter-otlp-proto-http": "1.45.1",
+    "packaging": "26.3",
+    "langgraph-runtime-inmem": "0.24.1",
+    "bracex": "3.2",
+    "annotated-types": "0.8.0",
+    "xxhash": "4.0.2",
+    "charset-normalizer": "3.5.2",
+    "httpcore2": "2.16.0",
+    "Pygments": "2.21.0",
+    "protobuf": "6.33.6",
+    "pydantic_core": "2.50.1",
+    "pydantic-settings": "2.16.1",
+    "frozenlist": "1.8.0",
+    "blockbuster": "1.5.29",
+    "iniconfig": "2.3.1",
+    "python-jose": "3.5.0",
+    "tenacity": "9.1.4",
+    "urllib3": "2.8.0",
+    "python-dotenv": "1.2.4",
+    "typing-inspection": "0.4.4",
+    "alembic": "1.20.1",
+    "jsonpatch": "1.38",
+    "pyasn1_modules": "0.4.2",
+    "annotated-doc": "0.0.5",
+    "opentelemetry-exporter-http-transport": "0.66b1",
+    "grpcio": "1.76.0",
+    "pandas": "3.1.0",
+    "jsonpointer": "3.6",
+    "structlog": "25.5.0",
+    "langgraph-sdk": "0.4.10",
+    "bcrypt": "4.0.1",
+    "six": "1.17.0",
+    "tzdata": "2026.5",
+    "dnspython": "2.9.0",
+    "certifi": "2026.10.23",
+    "setuptools": "75.8.0",
+    "openai": "3.40.0",
+    "propcache": "0.5.4",
+    "google-auth": "2.62.0",
+    "cffi": "2.1.1",
+    "email-validator": "2.3.0",
+    "SQLAlchemy": "2.1.6",
+    "PyJWT": "2.15.1",
+    "distro": "1.9.0",
+    "google-genai": "2.33.0",
+    "opentelemetry-sdk": "1.45.1",
+    "pytest": "9.1.1",
+    "mypy_extensions": "1.1.0",
+    "pyasn1": "0.6.5",
+    "isort": "9.0.2",
+    "cryptography": "46.0.7",
+    "numpy": "2.5.4",
+    "opentelemetry-exporter-otlp-common": "0.66b1",
+    "aiohappyeyeballs": "2.7.1",
+    "deepagents": "0.7.32",
+    "orjson": "3.13.0",
+    "pluggy": "1.7.0",
+    "redis": "8.1.0",
+    "fastapi": "0.162.0",
+    "googleapis-common-protos": "1.76.0",
+    "langchain": "1.4.7",
+    "docstring_parser": "0.18.0",
+    "langchain-google-genai": "4.4.2",
+    "httpx2": "2.16.0",
+    "PyMySQL": "1.2.3",
+    "langchain-openai": "1.7.3",
+    "aiohttp": "3.14.5",
+    "tiktoken": "0.14.0",
+    "MarkupSafe": "3.0.4",
+    "anyio": "4.15.1",
+    "PyYAML": "6.0.3",
+    "requests": "2.34.2",
+    "langgraph-api": "0.7.28",
+    "requests-toolbelt": "1.0.0",
+    "langchain-classic": "1.0.8",
+    "regex": "2026.9.29",
+    "tabulate": "0.10.0",
+    "starlette": "1.10.0",
+    "croniter": "6.2.4",
+    "watchfiles": "1.3.0",
+    "rsa": "4.9.1",
+    "langchain-core": "1.7.0",
+    "click": "8.5.0",
+    "grpcio-tools": "1.76.0",
+    "python-multipart": "0.0.32",
+    "langchain-anthropic": "1.7.6",
+    "tavily-python": "0.8.5",
+    "wcmatch": "11.2",
+    "uuid_utils": "0.19.0",
+    "grpcio-health-checking": "1.76.0",
+    "forbiddenfruit": "0.1.4",
+    "multidict": "7.2.1",
+    "filetype": "1.2.0",
+    "sse-starlette": "2.1.3",
+    "langsmith": "0.14.13",
+    "pydantic": "2.14.1",
+    "attrs": "26.1.0",
+    "zstandard": "0.25.0",
+    "ormsgpack": "1.13.0",
+    "langgraph": "1.2.18",
+    "httpcore": "1.0.9",
+    "langchain-text-splitters": "1.1.3"
+  },
+  "smoke-empty": {
+    "status": "passed"
+  },
+  "static-http": {
+    "status": "passed",
+    "transport": "TCP HTTP",
+    "checks": [
+      {
+        "path": "/",
+        "status": 302,
+        "location": "/data_copilot/"
+      },
+      {
+        "path": "/data_copilot",
+        "status": 301,
+        "location": "/data_copilot/"
+      },
+      {
+        "path": "/data_copilot/login",
+        "status": 301,
+        "location": "/data_copilot/login/"
+      },
+      {
+        "path": "/data_copilot/login?redirect_probe=1",
+        "status": 301,
+        "location": "/data_copilot/login/?redirect_probe=1"
+      },
+      {
+        "path": "/data_copilot?threadId=00000000-0000-4000-8000-000000000001",
+        "status": 301,
+        "location": "/data_copilot/?threadId=00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "path": "/data_copilot/",
+        "status": 200
+      },
+      {
+        "path": "/data_copilot/login/",
+        "status": 200
+      }
+    ]
+  },
+  "browser-server": {
+    "status": "passed",
+    "runs": 1,
+    "final_status": "success",
+    "checkpoint_answer": "deployment-auth-ok",
+    "lease_keys": 0
+  },
+  "browser-ui": {
+    "status": "passed",
+    "origin": "http://127.0.0.1:9265",
+    "checks": [
+      "anonymous root to login",
+      "login to chat",
+      "submitted prompt did not contain expected answer",
+      "answer rendered",
+      "slashless deep-link reload retained threadId and answer",
+      "wrong password rejected with diagnostic ID",
+      "logout to login",
+      "logged-out deep link required login",
+      "re-login to chat"
+    ],
+    "conversation_runtime": "IDE browser",
+    "logout_and_relogin_runtime": "native browser",
+    "recovery": "IDE click/select bridge timed out twice; native UI completed remaining checks"
+  },
+  "smoke-head": {
+    "status": "passed"
+  },
+  "smoke-legacy": {
+    "status": "passed"
+  },
+  "runtime": {
+    "python": "Python 3.12.13",
+    "frontend_builder": [
+      "v22.23.2",
+      "10.5.1"
+    ],
+    "docker": "29.4.1",
+    "compose": "5.1.3",
+    "migration_head": "b6f4e8c2a9d1"
+  },
+  "cleanup": {
+    "status": "passed",
+    "own_containers": 0,
+    "own_volumes_removed": true,
+    "protected_containers_running": 5,
+    "protected_images_unchanged": true,
+    "cache_ids_targeted": [
+      "569te8dkvvvtj2eplhn5c9uwx",
+      "79tcjsdiv6uaylsdr2yj7nyva",
+      "bkp9ztjhug0hebmq93yg6k1gh",
+      "mbkmn9xqzdaj5n9weyfojxpty",
+      "7enh88ed411s1d6csoagq6rh3",
+      "jgu37opsbv8oooxzrqia8f830",
+      "lebobpdfbx4aovzbuk17x62de",
+      "sn2tmtuv9ide0bzg93pgketvj",
+      "qo4xh3k05lod1rhzcdd1o2wpa",
+      "wpry96uy8vns520yr7y45y29x",
+      "mico6o0ncwv9ya05bbrx4qjrf",
+      "2nri4lxeyy9finaflokw9bant",
+      "elo20uown866pzmh8nca6qgdq",
+      "93oyfi8cbu3n30s53wwggg3t0",
+      "giwnevoyqh8in3y6kmbxpbhvi",
+      "loos5v4uffer0t6t5a4y6bfjy",
+      "ugi96mtj89y0h5lybinvxciwp",
+      "eph1zeyl9cu70bnfhqourqmnd"
+    ],
+    "temporary_artifacts_removed": true,
+    "own_volumes": 0,
+    "cache_records_remaining": 0,
+    "native_browser_tab_closed": true
+  },
+  "status": "local five-service validation passed; global production NO-GO retained",
+  "hosted_current_worktree": "not run; changes uncommitted",
+  "ended_at": "2026-10-28T00:39:52+0800",
+  "source_verified_after_acceptance": true,
+  "final_checks": {
+    "isort": "passed",
+    "release_contracts": "passed",
+    "git_diff_check": "passed"
+  }
+}

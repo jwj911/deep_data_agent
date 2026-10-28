@@ -24,6 +24,8 @@ def test_installed_api_runs_over_tcp_with_preserved_graph_dependencies():
     evidence = json.loads(result.stdout)
     assert evidence["status"] == "passed"
     assert evidence["transport"] == "TCP HTTP"
-    assert evidence["leases"] == {"acquired": 3, "released": 3}
+    assert evidence["leases"] == {"acquired": 4, "released": 4}
     assert evidence["outbound_attempts"] == 0
-    assert len(evidence["checks"]) == 10
+    assert "cancelled run interrupted" in evidence["checks"]
+    assert "timeout and immediate lease release" in evidence["checks"]
+    assert "real identity contexts" in evidence["checks"]

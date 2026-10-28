@@ -152,6 +152,9 @@ services:
 
   langgraph:
     <<: *backend-service
+    volumes:
+      - managed_file_data:/data/managed-files
+      - langgraph_data:/app/.langgraph_api
     command:
       [
         "langgraph",
@@ -230,3 +233,4 @@ volumes:
   mysql_data:
   redis_data:
   managed_file_data:
+  langgraph_data:

@@ -16,9 +16,9 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib import error, request
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT = 30
@@ -68,7 +68,7 @@ def _expect(status, payload, expected, label):
     return decoded
 
 
-def _server():
+def _server(lease_redis_url=None):
     """Run the real API app; substitute only model, lease and identity storage."""
     scratch = Path.cwd()
     if not scratch.name.startswith("dda-graph-http-") or (
@@ -108,6 +108,9 @@ def _server():
         N_JOBS_PER_WORKER="1",
         DISABLE_TRUSTSTORE="true",
         OTEL_ENABLED="false",
+        AGENT_RUN_TIMEOUT_SECONDS="2",
+        MODEL_REQUEST_TIMEOUT_SECONDS="1",
+        SEARCH_TIMEOUT_SECONDS="1",
     )
     import dotenv
 
@@ -134,6 +137,9 @@ def _server():
     from data_agent.config import database
     from data_agent.models.user import Base, User
     from data_agent.services import agent_service
+    from data_agent.services.agent_lease import (AgentLease, AgentLeaseManager,
+                                                 get_active_agent_lease,
+                                                 get_active_agent_subject)
     from data_agent.services.auth_service import create_access_token
 
     outbound_attempts = []
@@ -176,26 +182,51 @@ def _server():
         db.commit()
 
     events = []
+    active_leases = {}
+    model_subjects = []
 
-    class RecordingLeaseManager:
-        @asynccontextmanager
-        async def hold_async(self, subject):
+    class RecordingLeaseManager(AgentLeaseManager):
+        # Use the production hold/hold_async implementations, including tokens.
+        # Only acquisition/storage is synthetic unless a private Redis is given.
+        async def acquire_async(self, subject):
+            if lease_redis_url:
+                lease = await super().acquire_async(subject)
+            else:
+                lease = AgentLease(
+                    lease_id=secrets.token_hex(16),
+                    subject_digest=self.subject_digest(subject),
+                    expires_at_ms=int(time.time() * 1000) + 75000,
+                )
+            active_leases[lease.lease_id] = subject
             events.append(("acquire", subject))
-            try:
-                yield
-            finally:
-                events.append(("release", subject))
+            return lease
+
+        def release(self, lease):
+            released = super().release(lease) if lease_redis_url else True
+            if not released:
+                raise RuntimeError("Verification lease was not removed from Redis")
+            subject = active_leases.pop(lease.lease_id)
+            events.append(("release", subject))
+            return released
 
     class OfflineModel(FakeListChatModel):
         def bind_tools(self, tools, **kwargs):
             return self
 
         async def _agenerate(self, messages, **kwargs):
-            if any(message.content == "wait-for-cancel" for message in messages):
+            subject = get_active_agent_subject()
+            lease = get_active_agent_lease()
+            if subject not in ("17", "18") or lease is None:
+                raise RuntimeError("Model execution lost the authenticated context")
+            model_subjects.append(subject)
+            if any(message.content in ("wait-for-cancel", "wait-for-timeout")
+                   for message in messages):
                 await asyncio.Event().wait()
             return await super()._agenerate(messages, **kwargs)
 
-    agent_service.global_agent_lease_manager = RecordingLeaseManager()
+    agent_service.global_agent_lease_manager = RecordingLeaseManager(
+        redis_url=lease_redis_url or "redis://127.0.0.1:1/0",
+    )
     agent_service.ChatOpenAI = lambda **kwargs: OfflineModel(
         responses=["http-copy-ok"]
     )
@@ -223,10 +254,21 @@ def _server():
     agent_service.ResourceBoundedAgentGraph.copy = observe_copy
 
     async def diagnostics(_request):
+        if get_active_agent_subject() is not None or (
+            get_active_agent_lease() is not None
+        ):
+            raise RuntimeError("Agent identity leaked into an HTTP request")
         return JSONResponse({
             "acquired": sum(event[0] == "acquire" for event in events),
             "released": sum(event[0] == "release" for event in events),
             "subjects": sorted({event[1] for event in events}),
+            "active": len(active_leases),
+            "model_subjects": sorted(set(model_subjects)),
+            "redis_active": (
+                agent_service.global_agent_lease_manager._recovery.get_client()
+                .zcard("agent:lease:{agent}:global")
+                if lease_redis_url else None
+            ),
             "copies": copies,
             "outbound_attempts": len(outbound_attempts),
         })
@@ -281,14 +323,6 @@ def _verify(base, tokens):
         "input": {"messages": [{"role": "user", "content": "http regression"}]},
         "config": {"configurable": {"request_id": "a" * 32}},
     }
-    forged_body = dict(
-        body, config={"configurable": {"langgraph_auth_user_id": "999"}}
-    )
-    status, _ = _request(
-        base, f"/threads/{thread_id}/runs/wait", first, forged_body
-    )
-    if status != 422:
-        raise RuntimeError("Reserved HTTP identity input was not rejected")
     for token in (second, admin):
         status, _ = _request(
             base, f"/threads/{thread_id}/runs/wait", token, body
@@ -296,12 +330,21 @@ def _verify(base, tokens):
         if status not in (403, 404):
             raise RuntimeError("Cross-owner run creation was not rejected")
     print("HTTP identity and owner rejection passed.", file=sys.stderr)
+    # API 0.16 strips reserved envelope fields. Verify the actual model and
+    # lease subject still come from JWT, rather than relying on a 422 status.
+    forged_body = dict(
+        body, config={"configurable": {"langgraph_auth_user_id": "999"}},
+        context={"langgraph_auth_user_id": "999"},
+    )
     result = _expect(
-        *_request(base, f"/threads/{thread_id}/runs/wait", first, body),
+        *_request(base, f"/threads/{thread_id}/runs/wait", first, forged_body),
         200, "Wait run",
     )
     if result["messages"][-1]["content"] != "http-copy-ok":
         raise RuntimeError("Wait run returned an unexpected result")
+    stats = _expect(*_request(base, "/__verification"), 200, "Wait lease cleanup")
+    if stats["acquired"] != 1 or stats["released"] != 1 or stats["active"]:
+        raise RuntimeError("Wait run did not release its lease before returning")
     print("HTTP wait run passed.", file=sys.stderr)
     state = _expect(
         *_request(base, f"/threads/{thread_id}/state", first),
@@ -318,6 +361,9 @@ def _verify(base, tokens):
     )
     if status != 200 or "http-copy-ok" not in stream or "event: error" in stream:
         raise RuntimeError("Stream run did not complete successfully")
+    stats = _expect(*_request(base, "/__verification"), 200, "Stream lease cleanup")
+    if stats["acquired"] != 2 or stats["released"] != 2 or stats["active"]:
+        raise RuntimeError("Stream run did not release its lease before returning")
     cancel_thread = _expect(
         *_request(base, "/threads", first, {}), 200, "Create cancel thread"
     )["thread_id"]
@@ -351,8 +397,30 @@ def _verify(base, tokens):
         if time.monotonic() >= deadline:
             raise RuntimeError("Cancellation did not release the lease")
         time.sleep(0.02)
+    run_state = _expect(*_request(base, run_path, first), 200, "Cancelled run")
+    if run_state["status"] != "interrupted":
+        raise RuntimeError(f"Cancelled run ended with status {run_state['status']}")
+    timeout_thread = _expect(
+        *_request(base, "/threads", second, {}), 200, "Create timeout thread"
+    )["thread_id"]
+    timeout_body = {
+        "assistant_id": "agent",
+        "input": {"messages": [{"role": "user", "content": "wait-for-timeout"}]},
+    }
+    status, payload = _request(
+        base, f"/threads/{timeout_thread}/runs/wait", second, timeout_body,
+    )
+    if status != 200 or "agent_timeout" not in payload or "__error__" not in payload:
+        raise RuntimeError("Timeout did not return its stable graph error")
+    stats = _expect(*_request(base, "/__verification"), 200, "Timeout lease cleanup")
+    if stats["acquired"] != 4 or stats["released"] != 4 or stats["active"]:
+        raise RuntimeError("Timeout did not release its lease before returning")
+    if stats["redis_active"] not in (None, 0):
+        raise RuntimeError("Verification left an active Redis lease")
     if stats["subjects"] != ["17", "18"]:
         raise RuntimeError("HTTP run accepted a forged or cross-owner identity")
+    if stats["model_subjects"] != ["17", "18"]:
+        raise RuntimeError("Models did not execute with both authenticated subjects")
     if stats["outbound_attempts"]:
         raise RuntimeError("Verification attempted an external connection")
     if not stats["copies"] or not all(
@@ -369,12 +437,16 @@ def _verify(base, tokens):
         "checks": [
             "anonymous rejected", "cross-owner/admin rejected", "wait run",
             "stream run", "checkpoint state", "authenticated identity",
-            "reserved identity rejected", "cross-owner run rejected",
+            "reserved identity cannot replace JWT subject", "cross-owner run rejected",
             "API copy dependencies", "cancel and single lease release",
+            "cancelled run interrupted", "timeout and immediate lease release",
+            "real identity contexts",
         ],
-        "leases": {"acquired": 3, "released": 3},
+        "leases": {"acquired": 4, "released": 4},
         "outbound_attempts": stats["outbound_attempts"],
-        "scope": "synthetic model/lease, SQLite identity, isolated inmem runtime",
+        "scope": "offline model, real identity contexts, SQLite, isolated inmem",
+        "lease_storage": "Redis" if stats["redis_active"] is not None else "synthetic",
+        "redis_active": stats["redis_active"],
         "source_sha256": hashlib.sha256(
             (ROOT / "data_agent/services/agent_service.py").read_bytes()
         ).hexdigest(),
@@ -384,14 +456,29 @@ def _verify(base, tokens):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--lease-redis-url",
+        help="Optional fresh, isolated loopback Redis for actual lease Lua checks",
+    )
     args = parser.parse_args()
+    if args.lease_redis_url:
+        parsed = urlparse(args.lease_redis_url)
+        if parsed.scheme != "redis" or parsed.hostname not in ("127.0.0.1", "::1"):
+            raise ValueError("Verification Redis must be a private loopback instance")
+        if parsed.username or parsed.password:
+            raise ValueError("Verification Redis must not contain credentials")
     if args.server:
-        _server()
+        _server(args.lease_redis_url)
         return 0
     with tempfile.TemporaryDirectory(prefix="dda-graph-http-") as scratch:
         diagnostic_file = tempfile.TemporaryFile(mode="w+b")
+        child_command = [
+            sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--server",
+        ]
+        if args.lease_redis_url:
+            child_command.extend(["--lease-redis-url", args.lease_redis_url])
         process = subprocess.Popen(
-            [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--server"],
+            child_command,
             cwd=scratch,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

@@ -2,12 +2,20 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import aclosing, closing
+from contextvars import copy_context
 from threading import Lock
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
 from deepagents import create_deep_agent
+from deepagents.backends import StateBackend
+from deepagents.graph import DeepAgentState, create_summarization_middleware
+from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from deepagents.middleware.subagents import (GENERAL_PURPOSE_SUBAGENT,
+                                             create_sub_agent)
 from langchain.agents.middleware import (ModelCallLimitMiddleware,
                                          ToolCallLimitMiddleware)
 from langchain.agents.middleware.model_call_limit import \
@@ -24,6 +32,13 @@ from data_agent.config.logger import agent_logger
 from data_agent.models.user import User
 from data_agent.observability.context import bind_request_id
 from data_agent.observability.events import emit_event
+from data_agent.services.agent_budget import (AGENT_MODEL_BUDGET_EXCEEDED,
+                                              AGENT_TOOL_BUDGET_EXCEEDED,
+                                              AgentModelBudgetExceededError,
+                                              AgentToolBudgetExceededError,
+                                              AggregateToolBudgetMiddleware,
+                                              budget_http_clients,
+                                              hold_run_budget)
 from data_agent.services.agent_lease import (AGENT_BUSY,
                                              AGENT_PROTECTION_UNAVAILABLE,
                                              AgentBusyError,
@@ -37,14 +52,12 @@ from data_agent.services.authorization_service import (
 from data_agent.services.cache_service import global_cache_service
 from data_agent.tools.tool_manager import global_tool_manager
 
-_TOOL_POLICY_VERSION = "3"
+_TOOL_POLICY_VERSION = "4"
 _SERVER_CONFIG = config
 AGENT_CANCELLED = "agent_cancelled"
 AGENT_INVALID_QUERY = "agent_invalid_query"
-AGENT_MODEL_BUDGET_EXCEEDED = "agent_model_budget_exceeded"
 AGENT_RESPONSE_TOO_LARGE = "agent_response_too_large"
 AGENT_TIMEOUT = "agent_timeout"
-AGENT_TOOL_BUDGET_EXCEEDED = "agent_tool_budget_exceeded"
 _CLIENT_BUDGET_KEYS = frozenset(
     {
         "max_completion_tokens",
@@ -78,20 +91,6 @@ Finally, translate the answer to Chinese.
 
 class AgentInvocationError(RuntimeError):
     """Raised when an upstream agent invocation fails."""
-
-
-class AgentModelBudgetExceededError(RuntimeError):
-    """Raised when the server-owned model-call budget is exhausted."""
-
-    def __init__(self) -> None:
-        super().__init__(AGENT_MODEL_BUDGET_EXCEEDED)
-
-
-class AgentToolBudgetExceededError(RuntimeError):
-    """Raised when the server-owned tool-call budget is exhausted."""
-
-    def __init__(self) -> None:
-        super().__init__(AGENT_TOOL_BUDGET_EXCEEDED)
 
 
 class AgentQueryValidationError(ValueError):
@@ -225,18 +224,46 @@ class ResourceBoundedAgentGraph(CompiledStateGraph):
         **kwargs: Any,
     ) -> Iterator[Any]:
         bounded, subject = _prepare_run_config(config)
-        deadline = perf_counter() + _SERVER_CONFIG.AGENT_RUN_TIMEOUT_SECONDS
+        execution_context = copy_context()
+
+        def produce() -> Iterator[Any]:
+            deadline = (
+                perf_counter() + _SERVER_CONFIG.AGENT_RUN_TIMEOUT_SECONDS
+            )
+            try:
+                with (
+                    self._agent_lease_manager.hold(subject),
+                    hold_run_budget(
+                        _SERVER_CONFIG.AGENT_MODEL_CALL_LIMIT,
+                        _SERVER_CONFIG.AGENT_TOOL_CALL_LIMIT,
+                    ) as budget,
+                ):
+                    with closing(
+                        super(ResourceBoundedAgentGraph, self).stream(
+                            input, bounded, **kwargs,
+                        )
+                    ) as chunks:
+                        for chunk in chunks:
+                            budget.check()
+                            if perf_counter() > deadline:
+                                raise AgentTimeoutError()
+                            yield chunk
+            except (
+                ModelCallLimitExceededError,
+                ToolCallLimitExceededError,
+            ) as exc:
+                raise _stable_budget_error(exc) from exc
+
+        chunks = produce()
+        finished = object()
         try:
-            with self._agent_lease_manager.hold(subject):
-                for chunk in super().stream(input, bounded, **kwargs):
-                    if perf_counter() > deadline:
-                        raise AgentTimeoutError()
-                    yield chunk
-        except (
-            ModelCallLimitExceededError,
-            ToolCallLimitExceededError,
-        ) as exc:
-            raise _stable_budget_error(exc) from exc
+            while True:
+                chunk = execution_context.run(next, chunks, finished)
+                if chunk is finished:
+                    return
+                yield chunk
+        finally:
+            execution_context.run(chunks.close)
 
     async def astream(
         self,
@@ -245,24 +272,69 @@ class ResourceBoundedAgentGraph(CompiledStateGraph):
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         bounded, subject = _prepare_run_config(config)
+        queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=1)
+        finished = object()
+
+        async def produce() -> None:
+            # API consumers may resume each step in a different Task. Keep the
+            # deadline, lease tokens and underlying stream in one owned Task.
+            try:
+                async with asyncio.timeout(
+                    _SERVER_CONFIG.AGENT_RUN_TIMEOUT_SECONDS
+                ):
+                    async with self._agent_lease_manager.hold_async(subject):
+                        with hold_run_budget(
+                            _SERVER_CONFIG.AGENT_MODEL_CALL_LIMIT,
+                            _SERVER_CONFIG.AGENT_TOOL_CALL_LIMIT,
+                        ) as budget:
+                            async with aclosing(
+                                super(ResourceBoundedAgentGraph, self).astream(
+                                    input, bounded, **kwargs,
+                                )
+                            ) as chunks:
+                                async for chunk in chunks:
+                                    budget.check()
+                                    await queue.put(chunk)
+            except (
+                ModelCallLimitExceededError,
+                ToolCallLimitExceededError,
+            ) as exc:
+                raise _stable_budget_error(exc) from exc
+            except TimeoutError as exc:
+                raise AgentTimeoutError() from exc
+            finally:
+                # Never block cleanup on a full queue. If empty, wake a waiting
+                # consumer; otherwise it will observe completion after draining.
+                if queue.empty():
+                    queue.put_nowait(finished)
+
+        producer = asyncio.create_task(produce())
         try:
-            async with asyncio.timeout(
-                _SERVER_CONFIG.AGENT_RUN_TIMEOUT_SECONDS
-            ):
-                async with self._agent_lease_manager.hold_async(subject):
-                    async for chunk in super().astream(
-                        input,
-                        bounded,
-                        **kwargs,
-                    ):
-                        yield chunk
-        except (
-            ModelCallLimitExceededError,
-            ToolCallLimitExceededError,
-        ) as exc:
-            raise _stable_budget_error(exc) from exc
-        except TimeoutError as exc:
-            raise AgentTimeoutError() from exc
+            while True:
+                if producer.done() and queue.empty():
+                    await producer
+                    return
+                chunk = await queue.get()
+                if chunk is finished:
+                    await producer
+                    return
+                yield chunk
+        finally:
+            if not producer.done():
+                producer.cancel()
+            cleanup = asyncio.gather(producer, return_exceptions=True)
+            cancellation = None
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError as exc:
+                    # Repeated caller cancellation must not interrupt the
+                    # producer's already-running stream and lease cleanup.
+                    cancellation = exc
+            if cancellation is not None:
+                raise cancellation
+            if not producer.cancelled():
+                producer.result()
 
 
 def _apply_graph_resource_bounds(
@@ -302,6 +374,53 @@ def _generate_cache_key(query: str, actor_id: int) -> str:
     ).hexdigest()
 
 
+class RecursionBoundedSubAgentGraph(CompiledStateGraph):
+    """Inline child shares the parent ledger/lease but has bounded recursion."""
+
+    def stream(self, input, config=None, **kwargs):
+        yield from super().stream(
+            input, _bounded_run_config(config), **kwargs
+        )
+
+    async def astream(self, input, config=None, **kwargs):
+        async with aclosing(
+            super().astream(input, _bounded_run_config(config), **kwargs)
+        ) as chunks:
+            async for chunk in chunks:
+                yield chunk
+
+
+def _general_purpose_subagent(model, tools, backend):
+    # Compile the same default inline stack through the public API so its
+    # budget hook and recursion contract do not rely on private task closures.
+    graph = create_sub_agent(
+        {
+            **GENERAL_PURPOSE_SUBAGENT,
+            "model": model,
+            "tools": tools,
+            "middleware": [
+                FilesystemMiddleware(backend=backend),
+                create_summarization_middleware(model, backend),
+                PatchToolCallsMiddleware(),
+                AggregateToolBudgetMiddleware(),
+            ],
+        },
+        state_schema=DeepAgentState,
+    )
+    bounded = RecursionBoundedSubAgentGraph(
+        **{
+            key: value
+            for key, value in graph.__dict__.items()
+            if key != "__orig_class__"
+        }
+    ).with_config({"recursion_limit": config.AGENT_RECURSION_LIMIT})
+    return {
+        "name": GENERAL_PURPOSE_SUBAGENT["name"],
+        "description": GENERAL_PURPOSE_SUBAGENT["description"],
+        "runnable": bounded,
+    }
+
+
 def create_agent_graph():
     """Build the LangGraph-compatible agent without importing FastAPI or DB code."""
     agent_logger.info("Creating agent graph")
@@ -310,10 +429,9 @@ def create_agent_graph():
         "Registered agent tools: %s", global_tool_manager.get_tool_names()
     )
 
-    graph = create_deep_agent(
-        tools=tools,
-        system_prompt=_BASE_RESEARCH_INSTRUCTIONS,
-        model=ChatOpenAI(
+    http_client, http_async_client = budget_http_clients()
+    try:
+        model = ChatOpenAI(
             model=config.MODEL_NAME,
             api_key=config.require_model_api_key(),
             base_url=config.MODEL_BASE_URL,
@@ -321,18 +439,34 @@ def create_agent_graph():
             timeout=config.MODEL_REQUEST_TIMEOUT_SECONDS,
             max_retries=config.MODEL_MAX_RETRIES,
             max_tokens=config.MODEL_MAX_OUTPUT_TOKENS,
-        ),
-        middleware=(
-            ModelCallLimitMiddleware(
-                run_limit=config.AGENT_MODEL_CALL_LIMIT,
-                exit_behavior="error",
+            http_client=http_client,
+            http_async_client=http_async_client,
+            cache=False,
+        )
+        backend = StateBackend()
+        subagent = _general_purpose_subagent(model, tools, backend)
+        graph = create_deep_agent(
+            tools=tools,
+            system_prompt=_BASE_RESEARCH_INSTRUCTIONS,
+            model=model,
+            backend=backend,
+            subagents=[subagent],
+            middleware=(
+                ModelCallLimitMiddleware(
+                    run_limit=config.AGENT_MODEL_CALL_LIMIT,
+                    exit_behavior="error",
+                ),
+                ToolCallLimitMiddleware(
+                    run_limit=config.AGENT_TOOL_CALL_LIMIT,
+                    exit_behavior="error",
+                ),
+                AggregateToolBudgetMiddleware(),
             ),
-            ToolCallLimitMiddleware(
-                run_limit=config.AGENT_TOOL_CALL_LIMIT,
-                exit_behavior="error",
-            ),
-        ),
-    )
+        )
+    except BaseException:
+        http_client.close()
+        # AsyncClient has not issued a request during construction.
+        raise
     agent_logger.info("Agent graph created")
     return _apply_graph_resource_bounds(graph)
 

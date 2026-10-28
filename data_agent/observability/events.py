@@ -84,6 +84,10 @@ _INTEGER_FIELDS = {
     "remaining",
     "retry_after",
     "window_seconds",
+    "model_requests",
+    "tool_calls",
+    "model_limit",
+    "tool_limit",
 }
 _NUMBER_FIELDS = {"duration_ms"}
 _BOOLEAN_FIELDS = {"available"}

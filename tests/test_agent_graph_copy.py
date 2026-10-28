@@ -141,7 +141,10 @@ async def _loaded_graph(original, variant, monkeypatch, api_graphs, **storage):
     if variant == "get_graph":
         graph_id = "copy-regression-agent"
         monkeypatch.setitem(api_graphs.GRAPHS, graph_id, original)
-        async with api_graphs.get_graph(graph_id, {}, **storage) as graph:
+        storage.setdefault("store", None)
+        async with api_graphs.get_graph(
+            graph_id, {}, access_context="threads.create_run", **storage,
+        ) as graph:
             yield graph
     else:
         yield _variant(original, variant)

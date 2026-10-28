@@ -1,0 +1,18 @@
+{
+  "status": "aborted",
+  "stage": "temporary pinned dependency image build",
+  "started": "2026-10-27T23:31:36+08:00",
+  "observed_after_timeout": "2026-10-27T23:55:09.4024501+08:00",
+  "configured_timeout_seconds": 600,
+  "reason": "docker parent timed out, but its orphaned buildx child retained captured output handles and kept the validation Python process waiting",
+  "orphaned_buildx_process_id": 53752,
+  "orphaned_buildx_parent_id": 21920,
+  "orphaned_buildx_terminated": true,
+  "validation_command_id": "01ed469d4511a3950f5975bead596aa4",
+  "validation_command_stopped": true,
+  "owned_process_tree_absent_after_stop": true,
+  "temporary_runtime_tests_executed": false,
+  "existing_five_containers_preserved": true,
+  "recovery": "capture output in temporary files, terminate owned process trees on timeout, call buildx directly, and use the previously verified Tsinghua index with bounded pip retries",
+  "scope": "verification infrastructure failure; does not invalidate the 619 local regressions or five actual Redis lifecycle checks"
+}
