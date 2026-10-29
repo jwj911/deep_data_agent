@@ -1,6 +1,7 @@
 """Keep packaged verifier entrypoints portable and binary validation fail-closed."""
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import restic_release
 import verify_production_runtime
+import verify_production_support
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
@@ -87,3 +89,32 @@ def test_inventory_uses_repo_path_without_dotenv_values(monkeypatch):
     assert report["uses_langgraph_dev"]
     assert report["local_dotenv_metadata"]["content_read"] is False
     assert report["docker_operations_started"] == 0
+
+
+@pytest.mark.parametrize("injected_failure", [False, True])
+def test_read_only_pack_corruption_restores_bytes_and_mode(tmp_path, injected_failure):
+    pack = tmp_path / "synthetic-pack"
+    original = b"synthetic-encrypted-canary"
+    pack.write_bytes(original)
+    pack.chmod(stat.S_IRUSR)
+    original_mode = stat.S_IMODE(pack.stat().st_mode)
+    calls = []
+
+    def verify(*arguments, success=True):
+        calls.append(success)
+        assert arguments == ("check", "--read-data")
+        assert (pack.read_bytes() == original) is success
+        if injected_failure and not success:
+            raise RuntimeError("injected_verifier_failure")
+
+    try:
+        if injected_failure:
+            with pytest.raises(RuntimeError, match="injected_verifier_failure"):
+                verify_production_support.verify_pack_corruption(pack, verify)
+        else:
+            verify_production_support.verify_pack_corruption(pack, verify)
+        assert pack.read_bytes() == original
+        assert stat.S_IMODE(pack.stat().st_mode) == original_mode
+        assert calls == ([False] if injected_failure else [False, True])
+    finally:
+        pack.chmod(stat.S_IRUSR | stat.S_IWUSR)

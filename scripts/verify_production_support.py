@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import secrets
+import stat
 import subprocess
 import tarfile
 import time
@@ -173,6 +174,31 @@ def support_checks(root, temporary):
     return passed, suite, bundle, manifest_sha
 
 
+def verify_pack_corruption(pack, invoke):
+    """Mutate only this synthetic repository pack and always restore its mode."""
+    original = pack.read_bytes()
+    original_mode = stat.S_IMODE(pack.stat().st_mode)
+    corrupted = bytearray(original)
+    corrupted[len(corrupted) // 2] ^= 1
+    # restic creates read-only packs on Linux. This is a deliberate corruption
+    # fixture, not a change to the transport helper or a deployed repository.
+    pack.chmod(original_mode | stat.S_IWUSR)
+    try:
+        pack.write_bytes(corrupted)
+        invoke("check", "--read-data", success=False)
+    finally:
+        try:
+            pack.write_bytes(original)
+        finally:
+            pack.chmod(original_mode)
+    invoke("check", "--read-data")
+    return {
+        "original_pack_mode": oct(original_mode),
+        "restored_pack_mode": oct(stat.S_IMODE(pack.stat().st_mode)),
+        "restored_bytes": pack.read_bytes() == original,
+    }
+
+
 def restic_checks(executable, root, temporary, bundle, manifest_sha):
     binary = verify_binary(executable)
     repository = temporary / "encrypted-repository"
@@ -263,19 +289,13 @@ def restic_checks(executable, root, temporary, bundle, manifest_sha):
     passed.extend(["four_file_hash_roundtrip", "nonempty_target_rejection", "restore_byte_cap"])
     packs = [path for path in (repository / "data").rglob("*") if path.is_file()]
     require(bool(packs), "encrypted_pack_exists")
-    pack = packs[0]
-    original = pack.read_bytes()
-    corrupted = bytearray(original)
-    corrupted[len(corrupted) // 2] ^= 1
-    pack.write_bytes(corrupted)
-    invoke("check", "--read-data", success=False)
-    pack.write_bytes(original)
-    invoke("check", "--read-data")
+    ciphertext_control = verify_pack_corruption(packs[0], invoke)
     passed.append("ciphertext_tampering_detected_and_clean_recheck")
     return {
         "outcome": "passed", "checks": passed,
         "version": version.stdout.strip(),
         "binary_verification": binary,
+        "ciphertext_control": ciphertext_control,
         "executable_sha256": backup.digest(executable),
         "restore_seconds": round(latency, 6),
         "scope": "public_fixture_local_filesystem_repository",

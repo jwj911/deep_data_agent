@@ -122,3 +122,20 @@ Linux Backend Job 在原有门禁之后运行相同恢复脚本，要求实际�
 Smoke 执行。最终精确提交的结果以 PR checks 与工作区根
 `recovery-hosted-evidence.json` / `recovery-hosted-receipt.md` 为准，
 不能由本机结果或前轮提交外推。本轮不合并、不部署生产。
+
+### Linux 只读数据包负控修复
+
+提交 `aa13861` 的 run `40802323117` 中，Frontend、Release Contracts、
+Container Smoke 成功；真实浏览器、三域独立恢复及资源清理通过。
+Backend 全量、真实 Redis/MySQL 和 15 项 Linux 原子恢复准入均通过，
+`renameat2_RENAME_NOREPLACE` 实际执行、目录清理为 true，耗时 25.451 秒。
+随后加密支持检查在 22 项离线检查完成后遇到 PermissionError，因此该 run
+整体失败，不能算四门禁通过。
+
+将篡改步骤抽出为原行为函数，用只读合成数据包在 Windows 稳定复现同一
+写入失败：两项回归先红。restic 的 Linux 数据包只读，负控夹具需要临时
+修改自己创建的数据包。修复仅在夹具内增加 owner 写权限，并在 finally
+恢复原字节及原权限；即使验证器抛错也恢复。传输/业务恢复代码不改变。
+新增两项回归、恢复和发布契约共 225 项通过，14.29 秒；22+10 项完整
+支持检查再次通过。最终 Linux 制品额外记录原/恢复权限及字节恢复状态，
+用于确认此假设和最终门禁，不弱化真实损坏检测。
