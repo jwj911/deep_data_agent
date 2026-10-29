@@ -231,3 +231,108 @@ def test_restore_refuses_actual_target_runtime_drift_before_writing(bundle, monk
     monkeypatch.setattr(data_recovery, "_source_runtime", drift)
     with pytest.raises(SmokeError, match="recovery_domain_command_failed"):
         data_recovery.restore(None, bundle, bundle)
+
+
+@pytest.mark.parametrize("entries", [
+    [("same", b"first"), ("same", b"last")],
+    [("./same", b"first"), ("same", b"last")],
+    [("parent", b"file"), ("parent/child", b"child")],
+    [("parent/child", b"child"), ("parent", b"file")],
+])
+def test_ambiguous_tar_refused_before_any_restore_call(bundle, entries, monkeypatch):
+    with tarfile.open(bundle / "langgraph.tar", "w") as archive:
+        for name, content in entries:
+            item = tarfile.TarInfo(name)
+            item.size = len(content)
+            archive.addfile(item, io.BytesIO(content))
+    _manifest(bundle)
+    original_digest = data_recovery.digest
+    monkeypatch.setattr(
+        data_recovery, "digest",
+        lambda path: LOCK if path.name == "requirements.txt" else original_digest(path),
+    )
+    monkeypatch.setattr(
+        data_recovery, "_require_writers_stopped",
+        lambda _: pytest.fail("invalid archive reached Docker"),
+    )
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.restore(None, bundle, Path(__file__).resolve().parents[1])
+
+
+def test_duplicate_manifest_field_refused(bundle):
+    text = (bundle / "manifest.json").read_text(encoding="utf-8")
+    text = text.replace('"quiesced": true', '"quiesced": false, "quiesced": true')
+    (bundle / "manifest.json").write_text(text, encoding="utf-8")
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+@pytest.mark.parametrize("value", [True, 1.0, "1", None])
+def test_manifest_format_requires_integer(bundle, value):
+    manifest = _manifest(bundle)
+    manifest["format"] = value
+    (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_manifest_size_bound_before_parsing(bundle, monkeypatch):
+    monkeypatch.setattr(data_recovery, "MAX_MANIFEST_BYTES", 8)
+    monkeypatch.setattr(data_recovery.json, "loads", lambda *a, **k: pytest.fail("oversized JSON parsed"))
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_bundle_size_bound_before_hashing(bundle, monkeypatch):
+    monkeypatch.setattr(data_recovery, "MAX_BUNDLE_BYTES", 1)
+    monkeypatch.setattr(data_recovery, "digest", lambda _: pytest.fail("oversized artifact read"))
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_all_artifact_sizes_checked_before_hashing(bundle, monkeypatch):
+    (bundle / "managed-files.tar").write_bytes(b"wrong-size")
+    monkeypatch.setattr(data_recovery, "digest", lambda _: pytest.fail("artifact read before size checks"))
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_archive_member_bound(bundle, monkeypatch):
+    with tarfile.open(bundle / "langgraph.tar", "w") as archive:
+        for name in ("a", "b"):
+            archive.addfile(tarfile.TarInfo(name), io.BytesIO())
+    _manifest(bundle)
+    monkeypatch.setattr(data_recovery, "MAX_ARCHIVE_MEMBERS", 1)
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_unrelated_bundle_file_refused(bundle):
+    (bundle / "unexpected.txt").write_bytes(b"unrelated")
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+def test_compressed_tar_refused(bundle):
+    with tarfile.open(bundle / "langgraph.tar", "w:gz") as archive:
+        item = tarfile.TarInfo("canary")
+        item.size = 6
+        archive.addfile(item, io.BytesIO(b"canary"))
+    _manifest(bundle)
+    with pytest.raises(SmokeError, match="recovery_bundle_invalid"):
+        data_recovery.validate_bundle(bundle, lock_sha256=LOCK)
+
+
+@pytest.mark.parametrize("directories_first", [True, False])
+def test_archive_root_and_implicit_directories_remain_compatible(bundle, directories_first):
+    entries = [(".", True), ("./nested", True), ("nested/child.txt", False)]
+    if not directories_first:
+        entries.reverse()
+    with tarfile.open(bundle / "langgraph.tar", "w") as archive:
+        for name, directory in entries:
+            item = tarfile.TarInfo(name)
+            item.type = tarfile.DIRTYPE if directory else tarfile.REGTYPE
+            item.size = 0 if directory else 6
+            archive.addfile(item, None if directory else io.BytesIO(b"canary"))
+    _manifest(bundle)
+    assert data_recovery.validate_bundle(bundle, lock_sha256=LOCK)["quiesced"] is True

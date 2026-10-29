@@ -17,6 +17,12 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -53,6 +59,53 @@ jobs:
         run: |
           docker pull mysql:8.4
           python scripts/verify_mysql_schema.py
+
+      - name: Prepare pinned recovery verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/dda-recovery-tools" "$RUNNER_TEMP/dda-recovery-work" "$RUNNER_TEMP/dda-recovery-evidence"
+          timeout 120s gh release download v0.19.1 --repo restic/restic \
+            --pattern restic_0.19.1_linux_amd64.bz2 --dir "$RUNNER_TEMP/dda-recovery-tools"
+          python -B scripts/restic_release.py \
+            --archive "$RUNNER_TEMP/dda-recovery-tools/restic_0.19.1_linux_amd64.bz2" \
+            --output "$RUNNER_TEMP/dda-recovery-tools/restic"
+
+      - name: Verify Linux recovery refusal and atomic publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180s python -B scripts/verify_recovery_admission.py \
+            --work-dir "$RUNNER_TEMP/dda-recovery-work" \
+            --restic "$RUNNER_TEMP/dda-recovery-tools/restic" \
+            --output "$RUNNER_TEMP/dda-recovery-evidence/admission.json"
+
+      - name: Verify encrypted recovery and offline model controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180s python -B scripts/verify_production_support.py \
+            --work-dir "$RUNNER_TEMP/dda-recovery-work" \
+            --restic "$RUNNER_TEMP/dda-recovery-tools/restic" \
+            --output "$RUNNER_TEMP/dda-recovery-evidence/support.json"
+
+      - name: Retain sanitized recovery evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-controls-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dda-recovery-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean recovery verifier resources
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "$RUNNER_TEMP/dda-recovery-tools" "$RUNNER_TEMP/dda-recovery-work"
 
   frontend:
     name: Frontend

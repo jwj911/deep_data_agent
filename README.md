@@ -26,6 +26,36 @@ Agent、工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊�
 - Docker Desktop（运行完整容器栈时需要 Linux Engine）
 - Docker 构建与运行前，建议确认系统盘至少有 10 GB 可用空间
 
+## 恢复与生产门禁辅助脚本
+
+恢复辅助脚本及公开合成评测集已纳入 `scripts/` 版本管理。工作区外层旧副本
+仅属于历史交付；后续执行以下仓库入口，避免脚本与应用源码版本不一致。
+
+| 入口 | 用途与证据边界 |
+| --- | --- |
+| `scripts/data_recovery.py` | 停写格式 1 三域快照及独立空目标恢复；1 GiB 总量、64 KiB 清单、每 tar 100,000 条目 |
+| `scripts/verify_backup_transport.py` | 可信清单、完整快照集合、有界四文件下载及原子发布；不安装定时任务 |
+| `scripts/verify_recovery_admission.py` | 真实本地 restic 的恢复拒绝、下载失败、目标保护及 Windows/Linux 原子发布回归 |
+| `scripts/verify_production_support.py` | 离线模型参考与费用控制，以及真实本地加密/保留 dry-run/恢复负控 |
+| `scripts/verify_production_runtime.py` | 只读前置盘点，不读取 `.env` 值，不启动生产运行时 |
+| `scripts/verify_real_model.py` | 人工触发的有界提供方 pilot；缺进程 Key、准确价格及执行参数时不发送 |
+
+恢复验证使用 restic 0.19.1；从官方 release 下载与平台匹配的归档后，
+`scripts/restic_release.py --archive <归档> --output <新路径>` 校验固定归档和
+二进制 SHA-256 再解包。不接受任意版本替代，不把二进制提交到仓库。
+
+```powershell
+python -B scripts/verify_recovery_admission.py --work-dir "<已存在的隔离目录>" --restic "<已校验的可执行文件>" --output "<新的 admission.json>"
+python -B scripts/verify_production_support.py --work-dir "<已存在的隔离目录>" --restic "<已校验的可执行文件>" --output "<新的 support.json>"
+```
+
+CI 的 Backend Job 以准确 PR head 运行 Linux 恢复负控，记录
+`renameat2(RENAME_NOREPLACE)` 实际执行、通过用例、哈希和清理结果，并上传仅含
+脱敏 JSON 的证据。模型控制使用替身，备份使用公开合成数据和临时随机密码。
+生产部署、自动异地备份、真实模型效果及历史数据迁移仍是独立门禁，生产 NO-GO 保持。
+
+## 本地配置
+
 复制 `.env.example` 为 `.env`，再填写本地密钥：
 
 ```powershell

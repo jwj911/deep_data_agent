@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import subprocess
 import tarfile
 from datetime import datetime, timezone
@@ -16,6 +17,9 @@ from verify_container_smoke import (ComposeContext, SmokeError,
                                     resolve_migration_head)
 
 ARTIFACTS = ("mysql.sql", "langgraph.tar", "managed-files.tar")
+MAX_MANIFEST_BYTES = 64 * 1024
+MAX_BUNDLE_BYTES = 1024 ** 3
+MAX_ARCHIVE_MEMBERS = 100_000
 VOLUME_PATHS = {
     "langgraph.tar": "/app/.langgraph_api",
     "managed-files.tar": "/data/managed-files",
@@ -30,40 +34,105 @@ def digest(path):
     return hasher.hexdigest()
 
 
+def _require(condition):
+    if not condition:
+        raise ValueError("recovery_bundle_invalid")
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        _require(key not in result)
+        result[key] = value
+    return result
+
+
+def parse_manifest(raw: bytes, *, lock_sha256: str) -> dict:
+    """Bound and validate metadata before any artifact is consumed."""
+    try:
+        _require(0 < len(raw) <= MAX_MANIFEST_BYTES)
+        manifest = json.loads(raw, object_pairs_hook=_unique_object)
+        _require(isinstance(manifest, dict))
+        _require(type(manifest["format"]) is int and manifest["format"] == 1)
+        _require(manifest["quiesced"] is True)
+        _require(manifest["lock_sha256"] == lock_sha256)
+        artifacts = manifest["artifacts"]
+        _require(isinstance(artifacts, dict) and set(artifacts) == set(ARTIFACTS))
+        size = 0
+        for expected in artifacts.values():
+            _require(isinstance(expected, dict))
+            _require(type(expected["size"]) is int and expected["size"] > 0)
+            _require(isinstance(expected["sha256"], str))
+            _require(re.fullmatch(r"[0-9a-f]{64}", expected["sha256"]) is not None)
+            size += expected["size"]
+        _require(size <= MAX_BUNDLE_BYTES)
+        return manifest
+    except (KeyError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
+        raise SmokeError("recovery_bundle_invalid") from exc
+
+
+def _archive_bytes(path: Path) -> int:
+    """Reject ambiguous extraction, including implicit directory conflicts."""
+    declared = set()
+    directories = set()
+    files = set()
+    expanded = 0
+    # The producer uses tar -cf. Reject compressed archives and expansion bombs.
+    with tarfile.open(path, mode="r:") as archive:
+        for index, member in enumerate(archive, 1):
+            _require(index <= MAX_ARCHIVE_MEMBERS)
+            _require(len(member.name) <= 4096)
+            entry = PurePosixPath(member.name)
+            _require(not entry.is_absolute() and ".." not in entry.parts)
+            _require("\\" not in member.name and ":" not in member.name)
+            _require(member.isfile() or member.isdir())
+            _require(not member.issparse())
+            _require(entry not in declared)
+            _require(not files.intersection(entry.parents))
+            declared.add(entry)
+            if member.isdir():
+                _require(entry not in files and member.size == 0)
+                directories.add(entry)
+            else:
+                _require(entry != PurePosixPath(".") and entry not in directories)
+                _require(member.size >= 0)
+                files.add(entry)
+                expanded += member.size
+                _require(expanded <= MAX_BUNDLE_BYTES)
+            directories.update(entry.parents)
+    _require(bool(declared))
+    return expanded
+
+
+def _ordinary(path: Path) -> bool:
+    return not path.is_symlink() and not path.is_junction()
+
+
 def validate_bundle(bundle: Path, *, lock_sha256: str) -> dict:
     """Reject all missing, changed or unsafe domains before restoring anything."""
     manifest_path = bundle / "manifest.json"
-    if manifest_path.is_symlink() or not manifest_path.is_file():
+    if not _ordinary(manifest_path) or not manifest_path.is_file():
         raise SmokeError("recovery_manifest_missing")
-
-    def require(condition):
-        if not condition:
-            raise ValueError("recovery_bundle_invalid")
-
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        require(manifest["format"] == 1)
-        require(manifest["quiesced"] is True)
-        require(manifest["lock_sha256"] == lock_sha256)
-        require(set(manifest["artifacts"]) == set(ARTIFACTS))
+        _require(bundle.is_dir() and _ordinary(bundle))
+        _require({path.name for path in bundle.iterdir()} == {"manifest.json", *ARTIFACTS})
+        _require(manifest_path.stat().st_size <= MAX_MANIFEST_BYTES)
+        with manifest_path.open("rb") as source:
+            manifest = parse_manifest(source.read(MAX_MANIFEST_BYTES + 1), lock_sha256=lock_sha256)
+        # Validate every physical size before hashing or parsing an artifact.
         for name in ARTIFACTS:
             path = bundle / name
-            require(path.is_file() and not path.is_symlink())
-            expected = manifest["artifacts"][name]
-            require(path.stat().st_size == expected["size"] > 0)
-            require(digest(path) == expected["sha256"])
+            _require(path.is_file() and _ordinary(path))
+            _require(path.stat().st_size == manifest["artifacts"][name]["size"])
+        expanded = 0
+        for name in ARTIFACTS:
+            path = bundle / name
+            _require(digest(path) == manifest["artifacts"][name]["sha256"])
             if name.endswith(".tar"):
-                with tarfile.open(path) as archive:
-                    members = archive.getmembers()
-                    require(bool(members))
-                    for member in members:
-                        entry = PurePosixPath(member.name)
-                        require(not entry.is_absolute())
-                        require(".." not in entry.parts)
-                        require("\\" not in member.name and ":" not in member.name)
-                        require(member.isfile() or member.isdir())
+                expanded += _archive_bytes(path)
+                _require(expanded <= MAX_BUNDLE_BYTES)
         return manifest
-    except (AssertionError, KeyError, TypeError, ValueError, OSError, tarfile.TarError) as exc:
+    except (KeyError, TypeError, ValueError, OSError, tarfile.TarError) as exc:
         raise SmokeError("recovery_bundle_invalid") from exc
 
 
