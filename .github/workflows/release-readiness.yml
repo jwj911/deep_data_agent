@@ -17,9 +17,17 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -31,13 +39,73 @@ jobs:
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --require-hashes -r requirements.txt
 
       - name: Run backend tests
         run: python -B -m pytest -q
 
       - name: Check backend import order
         run: python -m isort --check-only data_agent tests scripts
+
+      - name: Verify dependency lock and runtime support
+        run: python scripts/verify_runtime_lock.py --check-support
+
+      - name: Verify aggregate budget with actual SDK TCP requests
+        run: |
+          docker pull redis:7-alpine
+          python -B scripts/verify_agent_budget_http.py --isolated-redis
+
+      - name: Verify real MySQL schema refusal
+        run: |
+          docker pull mysql:8.4
+          python scripts/verify_mysql_schema.py
+
+      - name: Prepare pinned recovery verifier
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/dda-recovery-tools" "$RUNNER_TEMP/dda-recovery-work" "$RUNNER_TEMP/dda-recovery-evidence"
+          timeout 120s gh release download v0.19.1 --repo restic/restic \
+            --pattern restic_0.19.1_linux_amd64.bz2 --dir "$RUNNER_TEMP/dda-recovery-tools"
+          python -B scripts/restic_release.py \
+            --archive "$RUNNER_TEMP/dda-recovery-tools/restic_0.19.1_linux_amd64.bz2" \
+            --output "$RUNNER_TEMP/dda-recovery-tools/restic"
+
+      - name: Verify Linux recovery refusal and atomic publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180s python -B scripts/verify_recovery_admission.py \
+            --work-dir "$RUNNER_TEMP/dda-recovery-work" \
+            --restic "$RUNNER_TEMP/dda-recovery-tools/restic" \
+            --output "$RUNNER_TEMP/dda-recovery-evidence/admission.json"
+
+      - name: Verify encrypted recovery and offline model controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180s python -B scripts/verify_production_support.py \
+            --work-dir "$RUNNER_TEMP/dda-recovery-work" \
+            --restic "$RUNNER_TEMP/dda-recovery-tools/restic" \
+            --output "$RUNNER_TEMP/dda-recovery-evidence/support.json"
+
+      - name: Retain sanitized recovery evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-controls-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dda-recovery-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean recovery verifier resources
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "$RUNNER_TEMP/dda-recovery-tools" "$RUNNER_TEMP/dda-recovery-work"
 
   frontend:
     name: Frontend
@@ -48,6 +116,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up pnpm 10.5.1
         uses: pnpm/action-setup@v4
@@ -83,6 +153,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -103,8 +175,9 @@ jobs:
   container-smoke:
     name: Container Smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
+      TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CI_ENV_FILE: ${{ github.workspace }}/.env
       COMPOSE_FILE: docker-config/docker-compose.yml
       COMPOSE_PROJECT_NAME: dda-smoke-${{ github.run_id }}-${{ github.run_attempt }}
@@ -112,6 +185,7 @@ jobs:
       - name: Check out target SHA
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.TARGET_SHA }}
           clean: true
           fetch-depth: 1
           persist-credentials: false
@@ -120,7 +194,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(timeout 10s git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(timeout 10s git rev-parse HEAD)" = "$TARGET_SHA"
 
       - name: Create isolated CI configuration
         shell: bash
@@ -155,10 +229,11 @@ jobs:
           } > "$CI_ENV_FILE"
 
       - name: Build images and verify empty database
+        id: build_smoke
         shell: bash
         run: |
           set -euo pipefail
-          timeout 360s docker compose \
+          timeout 900s docker compose \
             --env-file "$CI_ENV_FILE" \
             -f "$COMPOSE_FILE" \
             -p "$COMPOSE_PROJECT_NAME" \
@@ -169,6 +244,13 @@ jobs:
             --project-name "$COMPOSE_PROJECT_NAME" \
             verify --scenario empty
 
+      - name: Verify static authentication redirects
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 30s python scripts/verify_static_frontend_http.py \
+            --base-url http://127.0.0.1:3000
+
       - name: Verify Redis stop and recovery
         shell: bash
         run: |
@@ -178,6 +260,30 @@ jobs:
             --env-file "$CI_ENV_FILE" \
             --project-name "$COMPOSE_PROJECT_NAME" \
             redis-canary
+
+      - name: Verify actual browser authentication and conversation
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser_dir="$RUNNER_TEMP/dda-browser"
+          npm install --prefix "$browser_dir" --no-audit --no-fund playwright@1.64.1
+          "$browser_dir/node_modules/.bin/playwright" install --with-deps chromium
+          timeout 600s python scripts/verify_browser_smoke.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            --playwright-module "$browser_dir/node_modules/playwright/index.mjs" \
+            --scratch-root "$RUNNER_TEMP"
+
+      - name: Verify three-domain backup and fresh restore
+        if: ${{ !cancelled() && steps.build_smoke.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 600s python scripts/verify_data_recovery.py \
+            --compose-file "$COMPOSE_FILE" \
+            --env-file "$CI_ENV_FILE" \
+            --project-name "$COMPOSE_PROJECT_NAME"
 
       - name: Verify restart at migration head
         shell: bash

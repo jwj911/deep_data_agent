@@ -1,0 +1,1067 @@
+{
+  "head": "8e552f393aafd919fcf564f2b43c9856e6ff71f9",
+  "project": "dda-five-b79e0535",
+  "started": "2026-10-27T21:55:46",
+  "finished": "2026-10-27T23:07:43",
+  "ports": {
+    "mysql": 5664,
+    "redis": 5666,
+    "fastapi": 5667,
+    "langgraph": 5668,
+    "frontend": 5669
+  },
+  "source_sha256": {
+    "data_agent/services/agent_service.py": "dd55fe1a8596155df5df647c17e4751700173a5c6fc9b92906bd8671f44afb2e",
+    "data_agent/Dockerfile": "a6891cc746314619f8413393af80e390ca2f0bd0979a187cba158ca91c9a226f",
+    "agent_chatui/Dockerfile": "a6ed97bd1bd4b32ea128c8d5e627efe9b70bbb05a2b614a70fb25c5427c31ba8",
+    "requirements.txt": "c2298c04b81d01670e5007b4a782f6a9f5ce036cb50d685cca1b1ca812b726b5",
+    "tests/test_agent_graph_copy.py": "efd619187f6aef415163c07d82dab01b57db5ae409ea7e1d6dfb3dbbee34efc2",
+    "tests/test_agent_graph_http.py": "4f69068f96f93f6da594005aba92ff1294d8c570e7af9f2ab8f0b71e5683ef4c",
+    "scripts/verify_agent_graph_http.py": "53fd398037d7504a852fd56ef1b323de3fda9e5535488b46d2109acd6d16c7eb"
+  },
+  "git_source_sha256": {
+    "data_agent/services/agent_service.py": "c75a49e3cf4519d926dbda4680e2322de0367064ab9b2803dca41ce5d6d1e8c7",
+    "data_agent/Dockerfile": "16c0f7a2bc4126ef72d20175a9925c1a2efc06ea3dbe2d1a1a7e9a3a1fda0caa",
+    "agent_chatui/Dockerfile": "70faf5c06f9a66152b6cb522f1044f4dca49e07819de34d64fb43a575483d465",
+    "requirements.txt": "bf80dd7af617bcdfca28f2044f71eabd32691b7d61fc2640ffe93186522f2022",
+    "tests/test_agent_graph_copy.py": "2fabeb5729c8095c84cdbb933fd40f879a6a3ff07990fd321a105ec9377c7e9c",
+    "tests/test_agent_graph_http.py": "33f7c79dd5cd555322645a8a01568e976ffbc86a89257231e533233dada3686c",
+    "scripts/verify_agent_graph_http.py": "1d137b4de915d28e86291a90ef9aa9650221d8962d2e2dde1940cd24d9a5a9a2"
+  },
+  "source_identity_check": {
+    "result": "PASS",
+    "archive_line_endings": "CRLF",
+    "git_and_worktree_line_endings": "LF",
+    "git_core_autocrlf": true,
+    "checked_files": 7,
+    "comparison": "Git object bytes equal worktree; LF-to-CRLF conversion exactly reproduces each archived SHA256",
+    "requirements_declarations_changed": false
+  },
+  "container_source_sha256": {
+    "fastapi": {
+      "data_agent/services/agent_service.py": "dd55fe1a8596155df5df647c17e4751700173a5c6fc9b92906bd8671f44afb2e",
+      "requirements.txt": "c2298c04b81d01670e5007b4a782f6a9f5ce036cb50d685cca1b1ca812b726b5"
+    },
+    "langgraph": {
+      "data_agent/services/agent_service.py": "dd55fe1a8596155df5df647c17e4751700173a5c6fc9b92906bd8671f44afb2e",
+      "requirements.txt": "c2298c04b81d01670e5007b4a782f6a9f5ce036cb50d685cca1b1ca812b726b5"
+    }
+  },
+  "built_images": {
+    "backend": "sha256:b65f5b2293b7bc3e69ceb284f4cb287092bd968e7900848d5221b2d66f4b1a7e",
+    "frontend": "sha256:b17122b918b6396858aa2261b95a69dcb57303717d8b2debfe0643e3eb167c64"
+  },
+  "image_evidence": {
+    "backend": {
+      "id": "sha256:b65f5b2293b7bc3e69ceb284f4cb287092bd968e7900848d5221b2d66f4b1a7e",
+      "created": "2026-10-27T14:56:35.480359126Z",
+      "size": 177246535,
+      "rootfs_layers": [
+        "sha256:f2ec4de84f559f5c7be4233b589cdbdbb5507807e05621b77320edd55a1f2a0f",
+        "sha256:ccbaccfc0388284959cf106031557105fad2067d6c4435937b3414ce90760167",
+        "sha256:83fdf57f71f28b640f11d5072c284c81eadefc5ea538050fedcedba6149879bd",
+        "sha256:b80f3ed1ee6de85c788d9ae7203207c44724eab4baac8697390ca1412954ad2f",
+        "sha256:1c50fc3115621eeb8c620e89fd2d3e5260fb426a49fe944ca8da89b285a1b534",
+        "sha256:666026b9dfb0fd9bfb30ed6a01db6b2afe41124fa4059b7a38178f134f764f03",
+        "sha256:e41b153f02a847cf7f1275d912fd9eff4ecceb9d920e7a1923461434e3c2b4ba",
+        "sha256:2df4226f5bd2ddddfadd697b251f17a5d8153f9f6fee1df13356a3cfdb7f46ce",
+        "sha256:39cb8c35cbed9a64e64340fe5badcc28acf1fb692fa65e38d1ac5e33434ac0f6",
+        "sha256:99de3bb29f93b2b6909d79ddeeed2f730dab5d21cded0edc30a730d48d89d75c",
+        "sha256:d678a48c7b57fa529da2588444133e3b60e0ca639cdd310c47ecbcca64eb0719"
+      ]
+    },
+    "frontend": {
+      "id": "sha256:b17122b918b6396858aa2261b95a69dcb57303717d8b2debfe0643e3eb167c64",
+      "created": "2026-10-27T14:19:58.145293764Z",
+      "size": 23473085,
+      "rootfs_layers": [
+        "sha256:08000c18d16dadf9553d747a58cf44023423a9ab010aab96cf263d2216b8b350",
+        "sha256:d71eae0084c1aa823dd8fb2ecf8604d5c0f4911226c042bb1f8297e819f4b192",
+        "sha256:c56f134d380585340a68d0db2f2c170641a1c0ff72ccf2438cf2f693df756a85",
+        "sha256:e244aa659f612a80c40dd8645812301e3def6b15ec67b9e486ed2201172b51d1",
+        "sha256:b8d7d1d2263425d6044e059b2810017d062d659b9b755241f3747eda77726250",
+        "sha256:811a4dbbf4a5309e4390cf655c12db92e1a4304fb9d9731f83e7b02e95a617c6",
+        "sha256:947e805a4ac71f68e6703550c0b36c2aa2e554c4fa670ca2da6a25c6d7dccb66",
+        "sha256:0d853d50b128aa460b47e7121849463a14b18d4fd976caf5014744aae24d28aa",
+        "sha256:91a4e8e2781605e6e0f1beaf9561dcfb97f422a9fe54935af29ef4fa3f95cfd3",
+        "sha256:e549a11effaa48b00c8e197155a92c943599c120a3f8e9651aa74f25cdca82a2"
+      ]
+    }
+  },
+  "installed_versions": {
+    "python": "3.12.13",
+    "deepagents": "0.7.32",
+    "langgraph": "1.2.18",
+    "langgraph-api": "0.7.28",
+    "langgraph-cli": "0.4.40",
+    "langgraph-sdk": "0.4.10",
+    "langchain": "1.4.7",
+    "langchain-openai": "1.7.3",
+    "fastapi": "0.162.0",
+    "langchain-core": "1.7.0",
+    "langgraph-runtime-inmem": "0.24.1",
+    "SQLAlchemy": "2.1.6",
+    "redis": "8.1.0",
+    "pydantic": "2.14.1",
+    "numpy": "2.5.4",
+    "pytest": "9.1.1"
+  },
+  "installed_distributions": [
+    [
+      "Mako",
+      "1.4.3"
+    ],
+    [
+      "MarkupSafe",
+      "3.0.4"
+    ],
+    [
+      "PyJWT",
+      "2.15.1"
+    ],
+    [
+      "PyMySQL",
+      "1.2.3"
+    ],
+    [
+      "PyYAML",
+      "6.0.3"
+    ],
+    [
+      "Pygments",
+      "2.21.0"
+    ],
+    [
+      "SQLAlchemy",
+      "2.1.6"
+    ],
+    [
+      "aiohappyeyeballs",
+      "2.7.1"
+    ],
+    [
+      "aiohttp",
+      "3.14.5"
+    ],
+    [
+      "aiosignal",
+      "1.4.0"
+    ],
+    [
+      "alembic",
+      "1.20.1"
+    ],
+    [
+      "annotated-doc",
+      "0.0.5"
+    ],
+    [
+      "annotated-types",
+      "0.8.0"
+    ],
+    [
+      "anthropic",
+      "1.17.0"
+    ],
+    [
+      "anyio",
+      "4.15.1"
+    ],
+    [
+      "attrs",
+      "26.1.0"
+    ],
+    [
+      "bcrypt",
+      "4.0.1"
+    ],
+    [
+      "blockbuster",
+      "1.5.29"
+    ],
+    [
+      "bracex",
+      "3.2"
+    ],
+    [
+      "certifi",
+      "2026.10.23"
+    ],
+    [
+      "cffi",
+      "2.1.1"
+    ],
+    [
+      "charset-normalizer",
+      "3.5.2"
+    ],
+    [
+      "click",
+      "8.5.0"
+    ],
+    [
+      "cloudpickle",
+      "3.1.2"
+    ],
+    [
+      "croniter",
+      "6.2.4"
+    ],
+    [
+      "cryptography",
+      "46.0.7"
+    ],
+    [
+      "deepagents",
+      "0.7.32"
+    ],
+    [
+      "distro",
+      "1.9.0"
+    ],
+    [
+      "dnspython",
+      "2.9.0"
+    ],
+    [
+      "docstring_parser",
+      "0.18.0"
+    ],
+    [
+      "ecdsa",
+      "0.19.2"
+    ],
+    [
+      "email-validator",
+      "2.3.0"
+    ],
+    [
+      "fastapi",
+      "0.162.0"
+    ],
+    [
+      "filetype",
+      "1.2.0"
+    ],
+    [
+      "forbiddenfruit",
+      "0.1.4"
+    ],
+    [
+      "frozenlist",
+      "1.8.0"
+    ],
+    [
+      "google-auth",
+      "2.62.0"
+    ],
+    [
+      "google-genai",
+      "2.33.0"
+    ],
+    [
+      "googleapis-common-protos",
+      "1.76.0"
+    ],
+    [
+      "grpcio",
+      "1.76.0"
+    ],
+    [
+      "grpcio-health-checking",
+      "1.76.0"
+    ],
+    [
+      "grpcio-tools",
+      "1.76.0"
+    ],
+    [
+      "h11",
+      "0.16.0"
+    ],
+    [
+      "httpcore",
+      "1.0.9"
+    ],
+    [
+      "httpcore2",
+      "2.16.0"
+    ],
+    [
+      "httpx",
+      "0.28.1"
+    ],
+    [
+      "httpx-sse",
+      "0.4.3"
+    ],
+    [
+      "httpx2",
+      "2.16.0"
+    ],
+    [
+      "idna",
+      "3.20"
+    ],
+    [
+      "iniconfig",
+      "2.3.1"
+    ],
+    [
+      "isort",
+      "9.0.2"
+    ],
+    [
+      "jiter",
+      "0.18.0"
+    ],
+    [
+      "jsonpatch",
+      "1.38"
+    ],
+    [
+      "jsonpointer",
+      "3.6"
+    ],
+    [
+      "jsonschema_rs",
+      "0.29.1"
+    ],
+    [
+      "langchain",
+      "1.4.7"
+    ],
+    [
+      "langchain-anthropic",
+      "1.7.6"
+    ],
+    [
+      "langchain-classic",
+      "1.0.8"
+    ],
+    [
+      "langchain-community",
+      "0.4.2"
+    ],
+    [
+      "langchain-core",
+      "1.7.0"
+    ],
+    [
+      "langchain-google-genai",
+      "4.4.2"
+    ],
+    [
+      "langchain-openai",
+      "1.7.3"
+    ],
+    [
+      "langchain-protocol",
+      "0.0.20"
+    ],
+    [
+      "langchain-text-splitters",
+      "1.1.3"
+    ],
+    [
+      "langgraph",
+      "1.2.18"
+    ],
+    [
+      "langgraph-api",
+      "0.7.28"
+    ],
+    [
+      "langgraph-checkpoint",
+      "4.3.1"
+    ],
+    [
+      "langgraph-cli",
+      "0.4.40"
+    ],
+    [
+      "langgraph-prebuilt",
+      "1.1.1"
+    ],
+    [
+      "langgraph-runtime-inmem",
+      "0.24.1"
+    ],
+    [
+      "langgraph-sdk",
+      "0.4.10"
+    ],
+    [
+      "langsmith",
+      "0.14.13"
+    ],
+    [
+      "multidict",
+      "7.2.1"
+    ],
+    [
+      "mypy_extensions",
+      "1.1.0"
+    ],
+    [
+      "numpy",
+      "2.5.4"
+    ],
+    [
+      "openai",
+      "3.39.0"
+    ],
+    [
+      "opentelemetry-api",
+      "1.45.1"
+    ],
+    [
+      "opentelemetry-exporter-http-transport",
+      "0.66b1"
+    ],
+    [
+      "opentelemetry-exporter-otlp-common",
+      "0.66b1"
+    ],
+    [
+      "opentelemetry-exporter-otlp-proto-common",
+      "1.45.1"
+    ],
+    [
+      "opentelemetry-exporter-otlp-proto-http",
+      "1.45.1"
+    ],
+    [
+      "opentelemetry-proto",
+      "1.45.1"
+    ],
+    [
+      "opentelemetry-sdk",
+      "1.45.1"
+    ],
+    [
+      "opentelemetry-semantic-conventions",
+      "0.66b1"
+    ],
+    [
+      "orjson",
+      "3.13.0"
+    ],
+    [
+      "ormsgpack",
+      "1.13.0"
+    ],
+    [
+      "packaging",
+      "26.3"
+    ],
+    [
+      "pandas",
+      "3.1.0"
+    ],
+    [
+      "passlib",
+      "1.7.4"
+    ],
+    [
+      "pathspec",
+      "1.1.1"
+    ],
+    [
+      "pip",
+      "25.0.1"
+    ],
+    [
+      "pluggy",
+      "1.7.0"
+    ],
+    [
+      "propcache",
+      "0.5.4"
+    ],
+    [
+      "protobuf",
+      "6.33.6"
+    ],
+    [
+      "pyasn1",
+      "0.6.5"
+    ],
+    [
+      "pyasn1_modules",
+      "0.4.2"
+    ],
+    [
+      "pycparser",
+      "3.12"
+    ],
+    [
+      "pydantic",
+      "2.14.1"
+    ],
+    [
+      "pydantic-settings",
+      "2.16.1"
+    ],
+    [
+      "pydantic_core",
+      "2.50.1"
+    ],
+    [
+      "pytest",
+      "9.1.1"
+    ],
+    [
+      "python-dateutil",
+      "3.0.0"
+    ],
+    [
+      "python-dotenv",
+      "1.2.4"
+    ],
+    [
+      "python-jose",
+      "3.5.0"
+    ],
+    [
+      "python-multipart",
+      "0.0.32"
+    ],
+    [
+      "redis",
+      "8.1.0"
+    ],
+    [
+      "regex",
+      "2026.9.29"
+    ],
+    [
+      "requests",
+      "2.34.2"
+    ],
+    [
+      "requests-toolbelt",
+      "1.0.0"
+    ],
+    [
+      "rsa",
+      "4.9.1"
+    ],
+    [
+      "setuptools",
+      "75.8.0"
+    ],
+    [
+      "six",
+      "1.17.0"
+    ],
+    [
+      "sniffio",
+      "1.3.1"
+    ],
+    [
+      "sse-starlette",
+      "2.1.3"
+    ],
+    [
+      "starlette",
+      "1.10.0"
+    ],
+    [
+      "structlog",
+      "25.5.0"
+    ],
+    [
+      "tabulate",
+      "0.10.0"
+    ],
+    [
+      "tavily-python",
+      "0.8.5"
+    ],
+    [
+      "tenacity",
+      "9.1.4"
+    ],
+    [
+      "tiktoken",
+      "0.14.0"
+    ],
+    [
+      "truststore",
+      "0.10.5"
+    ],
+    [
+      "typing-inspection",
+      "0.4.4"
+    ],
+    [
+      "typing_extensions",
+      "4.16.0"
+    ],
+    [
+      "tzdata",
+      "2026.5"
+    ],
+    [
+      "urllib3",
+      "2.8.0"
+    ],
+    [
+      "uuid_utils",
+      "0.19.0"
+    ],
+    [
+      "uvicorn",
+      "0.54.0"
+    ],
+    [
+      "watchfiles",
+      "1.3.0"
+    ],
+    [
+      "wcmatch",
+      "11.2"
+    ],
+    [
+      "websockets",
+      "17.3"
+    ],
+    [
+      "xxhash",
+      "4.0.2"
+    ],
+    [
+      "yarl",
+      "1.25.1"
+    ],
+    [
+      "zstandard",
+      "0.25.0"
+    ]
+  ],
+  "task_build_history": [
+    {
+      "Name": "source/data_agent",
+      "Ref": "vo405uz7m2sxnuybum8vr5q8v",
+      "Context": "C:\\Users\\34226\\AppData\\Local\\Temp\\dda-five-8e552f3-q35798xo\\source",
+      "Dockerfile": "data_agent\\Dockerfile",
+      "NamedContexts": [
+        {
+          "Name": "python:3.12-slim",
+          "Value": "docker-image://deep-data-agent-transport:dda-five-b79e0535"
+        }
+      ],
+      "StartedAt": "2026-10-27T22:54:38.131279941+08:00",
+      "CompletedAt": "2026-10-27T22:57:00.2544105+08:00",
+      "Duration": 142123130559,
+      "Status": "completed",
+      "NumCompletedSteps": 13,
+      "NumTotalSteps": 13,
+      "NumCachedSteps": 2,
+      "Config": {
+        "Network": "host",
+        "ImageResolveMode": "local"
+      },
+      "Materials": [
+        {
+          "URI": "pkg:docker/deep-data-agent-transport@dda-five-b79e0535?platform=linux%2Famd64",
+          "Digests": [
+            "sha256:94744a2dffad78a756ef9da3437928943e9082e4b8ec79a005144b093ebac7ba"
+          ]
+        }
+      ],
+      "Attachments": [
+        {
+          "Digest": "sha256:b65f5b2293b7bc3e69ceb284f4cb287092bd968e7900848d5221b2d66f4b1a7e",
+          "Type": "application/vnd.oci.image.index.v1+json"
+        },
+        {
+          "Digest": "sha256:b968252af93b5cf6c14dc2e791e3b8e642d0826ef53a27afae264158d46a9d44",
+          "Type": "https://slsa.dev/provenance/v1"
+        },
+        {
+          "Digest": "sha256:c5f0ad7fed1ad3c4d4b6ebdc7d2ceb493df24662011da6552763f07ead9c8512",
+          "Platform": "linux/amd64",
+          "Type": "application/vnd.oci.image.manifest.v1+json"
+        }
+      ]
+    },
+    {
+      "Name": "agent_chatui",
+      "Ref": "i6czynvhi2reheudvem3f99k7",
+      "Context": "C:\\Users\\34226\\AppData\\Local\\Temp\\dda-five-8e552f3-q35798xo\\source\\agent_chatui",
+      "Dockerfile": "Dockerfile",
+      "StartedAt": "2026-10-27T22:09:09.107445739+08:00",
+      "CompletedAt": "2026-10-27T22:19:58.76958774+08:00",
+      "Duration": 649662142001,
+      "Status": "completed",
+      "NumCompletedSteps": 16,
+      "NumTotalSteps": 16,
+      "NumCachedSteps": 3,
+      "BuildArgs": [
+        {
+          "Name": "NEXT_PUBLIC_API_URL",
+          "Value": "http://127.0.0.1:5668"
+        },
+        {
+          "Name": "NEXT_PUBLIC_ASSISTANT_ID",
+          "Value": "agent"
+        },
+        {
+          "Name": "NEXT_PUBLIC_REST_API_URL",
+          "Value": "http://127.0.0.1:5667"
+        }
+      ],
+      "Config": {
+        "ImageResolveMode": "local"
+      },
+      "Materials": [
+        {
+          "URI": "pkg:docker/nginx@1.27-alpine?platform=linux%2Famd64",
+          "Digests": [
+            "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+          ]
+        },
+        {
+          "URI": "pkg:docker/node@22-alpine?platform=linux%2Famd64",
+          "Digests": [
+            "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+          ]
+        }
+      ],
+      "Attachments": [
+        {
+          "Digest": "sha256:b17122b918b6396858aa2261b95a69dcb57303717d8b2debfe0643e3eb167c64",
+          "Type": "application/vnd.oci.image.index.v1+json"
+        },
+        {
+          "Digest": "sha256:0acc6cef5c802720cb8ab30ee223b4d3a57bb8ade8cdedd692a56dde0786c3c8",
+          "Type": "https://slsa.dev/provenance/v1"
+        },
+        {
+          "Digest": "sha256:82af9c9cdd8bacea1cccd609ccb228c97cf5e9986825fe77f0548763d5d1c8f4",
+          "Platform": "linux/amd64",
+          "Type": "application/vnd.oci.image.manifest.v1+json"
+        }
+      ]
+    }
+  ],
+  "frontend_build": {
+    "Name": "agent_chatui",
+    "Ref": "i6czynvhi2reheudvem3f99k7",
+    "Context": "C:\\Users\\34226\\AppData\\Local\\Temp\\dda-five-8e552f3-q35798xo\\source\\agent_chatui",
+    "Dockerfile": "Dockerfile",
+    "StartedAt": "2026-10-27T22:09:09.107445739+08:00",
+    "CompletedAt": "2026-10-27T22:19:58.76958774+08:00",
+    "Duration": 649662142001,
+    "Status": "completed",
+    "NumCompletedSteps": 16,
+    "NumTotalSteps": 16,
+    "NumCachedSteps": 3,
+    "BuildArgs": [
+      {
+        "Name": "NEXT_PUBLIC_API_URL",
+        "Value": "http://127.0.0.1:5668"
+      },
+      {
+        "Name": "NEXT_PUBLIC_ASSISTANT_ID",
+        "Value": "agent"
+      },
+      {
+        "Name": "NEXT_PUBLIC_REST_API_URL",
+        "Value": "http://127.0.0.1:5667"
+      }
+    ],
+    "Config": {
+      "ImageResolveMode": "local"
+    },
+    "Materials": [
+      {
+        "URI": "pkg:docker/nginx@1.27-alpine?platform=linux%2Famd64",
+        "Digests": [
+          "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
+        ]
+      },
+      {
+        "URI": "pkg:docker/node@22-alpine?platform=linux%2Famd64",
+        "Digests": [
+          "sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+        ]
+      }
+    ],
+    "Attachments": [
+      {
+        "Digest": "sha256:b17122b918b6396858aa2261b95a69dcb57303717d8b2debfe0643e3eb167c64",
+        "Type": "application/vnd.oci.image.index.v1+json"
+      },
+      {
+        "Digest": "sha256:0acc6cef5c802720cb8ab30ee223b4d3a57bb8ade8cdedd692a56dde0786c3c8",
+        "Type": "https://slsa.dev/provenance/v1"
+      },
+      {
+        "Digest": "sha256:82af9c9cdd8bacea1cccd609ccb228c97cf5e9986825fe77f0548763d5d1c8f4",
+        "Platform": "linux/amd64",
+        "Type": "application/vnd.oci.image.manifest.v1+json"
+      }
+    ]
+  },
+  "frontend_image_id": "sha256:b17122b918b6396858aa2261b95a69dcb57303717d8b2debfe0643e3eb167c64",
+  "transport_base": {
+    "tag": "deep-data-agent-transport:dda-five-b79e0535",
+    "original_id": "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+    "adjusted_id": "sha256:94744a2dffad78a756ef9da3437928943e9082e4b8ec79a005144b093ebac7ba",
+    "rootfs_unchanged": true,
+    "only_config_change": "PIP_INDEX_URL",
+    "index": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "original_tag_preserved": true
+  },
+  "mirror_probe": {
+    "wheel": "cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl",
+    "bytes": 4459756,
+    "mirror_seconds": 1.7,
+    "sha256": "42a1e5f98abb6391717978baf9f90dc28a743b7d9be7f0751a6f56a75d14065b",
+    "publisher_hash_matches": true,
+    "index": "https://pypi.tuna.tsinghua.edu.cn/simple/cryptography/"
+  },
+  "build_attempt": 3,
+  "build_network": "host",
+  "build_guard": {
+    "minimum_c_free_mib": 700,
+    "idle_seconds": 600,
+    "wall_seconds": 2700
+  },
+  "build_guard_history": [
+    {
+      "minimum_c_free_mib": 700,
+      "idle_seconds": 180,
+      "wall_seconds": 2700
+    }
+  ],
+  "task_cache_reclaimed": {
+    "ids": [
+      "s9quxdt50fxn8botni2ywpoix",
+      "laqlwuk6zwgh5fm0xf05z28w5",
+      "i6xau6dkgkfdq7e5wfxfs4o7c"
+    ],
+    "reported_bytes": 1707695300,
+    "scope": "only current frontend intermediate refs"
+  },
+  "cleanup_task_cache_records": [
+    {
+      "ID": "n85px56qin6gncb48bjf6dtpq",
+      "Parents": null,
+      "CreatedAt": "2026-10-27 14:54:27.915975567 +0000 UTC",
+      "Description": "local source for context",
+      "Size": "4.096kB"
+    },
+    {
+      "ID": "rx41za9qnvfo6ojitdlru7leo",
+      "Parents": null,
+      "CreatedAt": "2026-10-27 14:54:27.64931217 +0000 UTC",
+      "Description": "local source for dockerfile",
+      "Size": "8.192kB"
+    },
+    {
+      "ID": "rdri1xuu4omm5i0hw6vwm0si2",
+      "Parents": [
+        "hjwlxwy6m5yojr7da10i7ce9n"
+      ],
+      "CreatedAt": "2026-10-27 14:56:35.480359126 +0000 UTC",
+      "Description": "[7/8] COPY langgraph.json ./",
+      "Size": "12.56kB"
+    },
+    {
+      "ID": "hjwlxwy6m5yojr7da10i7ce9n",
+      "Parents": [
+        "638ff6cxmcxyo6gmntk0ym92g"
+      ],
+      "CreatedAt": "2026-10-27 14:56:35.441449115 +0000 UTC",
+      "Description": "[6/8] COPY migrations ./migrations",
+      "Size": "39.7kB"
+    },
+    {
+      "ID": "638ff6cxmcxyo6gmntk0ym92g",
+      "Parents": [
+        "b2qvpbktpm6n8fy61a51wqtjl"
+      ],
+      "CreatedAt": "2026-10-27 14:56:35.403812568 +0000 UTC",
+      "Description": "[5/8] COPY alembic.ini ./",
+      "Size": "13.29kB"
+    },
+    {
+      "ID": "cink5srzw9c4so171a7m6qrgg",
+      "Parents": [
+        "7uvjti9nprfoh0l9b7lmepgz8"
+      ],
+      "CreatedAt": "2026-10-27 14:09:10.126861921 +0000 UTC",
+      "Description": "[builder 4/7] COPY package.json pnpm-lock.yaml ./",
+      "Size": "344.1kB"
+    },
+    {
+      "ID": "b2qvpbktpm6n8fy61a51wqtjl",
+      "Parents": [
+        "hsimh6b7jjlpdr5pe3txxvu55"
+      ],
+      "CreatedAt": "2026-10-27 14:56:35.364879552 +0000 UTC",
+      "Description": "[4/8] COPY data_agent ./data_agent",
+      "Size": "398.9kB"
+    },
+    {
+      "ID": "bqqem3x0noulw7e2sbc0ecdwa",
+      "Parents": [
+        "i6vpao7qctva0uovovdine8ly"
+      ],
+      "CreatedAt": "2026-10-27 14:19:58.145293764 +0000 UTC",
+      "Description": "[runtime 3/3] COPY --from=builder /app/out /usr/share/nginx/html/data_copilot",
+      "Size": "9.878MB"
+    },
+    {
+      "ID": "i6vpao7qctva0uovovdine8ly",
+      "Parents": [
+        "jnmy4szo0hxbnh3s7wec4y4xs"
+      ],
+      "CreatedAt": "2026-10-27 14:09:10.066890358 +0000 UTC",
+      "Description": "[runtime 2/3] COPY nginx.conf /etc/nginx/conf.d/default.conf",
+      "Size": "28.98kB"
+    },
+    {
+      "ID": "hsimh6b7jjlpdr5pe3txxvu55",
+      "Parents": [
+        "lxxfplhtci88v44c8f802689k"
+      ],
+      "CreatedAt": "2026-10-27 14:56:35.043785088 +0000 UTC",
+      "Description": "mount / from exec /bin/sh -c pip install --no-cache-dir -r requirements.txt",
+      "Size": "679.9MB"
+    },
+    {
+      "ID": "lxxfplhtci88v44c8f802689k",
+      "Parents": [
+        "db6veotxpmuh7uyz7rqd884yi"
+      ],
+      "CreatedAt": "2026-10-27 13:57:38.080723078 +0000 UTC",
+      "Description": "[3/8] COPY requirements.txt ./",
+      "Size": "12.67kB"
+    }
+  ],
+  "c_free_initial": 2188484608,
+  "c_free_build_minimum": 3053432832,
+  "c_free_final": 2997547008,
+  "prior_containers": [
+    "1f7c7baef0af59bd578eb17fdb55310059ac3c80b44f17f1f72465ef5fc77b1c",
+    "81f60fd98cd03c472398fbf8249341def10fa024e40843a0606707aee8857639",
+    "92a0c20d891bd9024ed70de205dac4aed7903dd5a1857bbdc479a307513a0d3b",
+    "43532526ad6b8b01611b2ff51e4741fdf60bd96e204417ec9d13f0b4f0c810a7",
+    "4b936312ed7d902c9fb3416265d791be43fe81a8d87fecdca0cb570cf1a0d243"
+  ],
+  "prior_images": {
+    "deep-data-agent-backend:local": "sha256:c02f38c9d134788f54b8a498fffef51e66e8ce83d2a55cbf7ade712f05a93104",
+    "deep-data-agent-frontend:local": "sha256:d80f2a34d8680efda0648342958a702c19ccd3ce64ac6f350c573c4b675200c3"
+  },
+  "results": {
+    "database_preflight": "empty MySQL database; Redis PONG",
+    "frontend_build": "PASS (BuildKit completed; wrapper's 300-second timeout retained)",
+    "build": "PASS",
+    "new_image_regression": "                                             [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/passlib/utils/__init__.py:854\n  /usr/local/lib/python3.12/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13\n    from crypt import crypt as _crypt\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n150 passed, 1 warning in 12.29s",
+    "empty_and_redis": "PASS",
+    "pip_check": "PASS",
+    "http_graph_redis": {
+      "result": "FAIL",
+      "scope": "original committed graph; controlled HTTP model",
+      "wait": {
+        "http": 200,
+        "payload": {
+          "__error__": {
+            "error": "ValueError",
+            "message": "<Token var=<ContextVar name='active_agent_subject' default=None at 0xMEMORY> at 0xMEMORY> was created in a different Context"
+          }
+        },
+        "lease_before": {},
+        "lease_after": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084
+        },
+        "answer_valid": false
+      },
+      "stream": {
+        "http": 200,
+        "contains_answer": true,
+        "contains_error_event": true,
+        "events": [
+          "metadata\r",
+          "values\r",
+          "values\r",
+          "error\r"
+        ],
+        "error_data": [
+          "data: {\"error\":\"ValueError\",\"message\":\"<Token var=<ContextVar name='active_agent_subject' default=None at 0xMEMORY> at 0xMEMORY> was created in a different Context\"}"
+        ],
+        "lease_before": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084
+        },
+        "lease_after": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084,
+          "e4915834ccad4b8aaf4a68067b4ec2ec": 1793113438117
+        }
+      },
+      "cancel": {
+        "http": 200,
+        "status": "error",
+        "lease_before": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084,
+          "e4915834ccad4b8aaf4a68067b4ec2ec": 1793113438117
+        },
+        "lease_during": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084,
+          "e4915834ccad4b8aaf4a68067b4ec2ec": 1793113438117,
+          "bbf2a8d8541b46208bb298aa453ff80f": 1793113440151
+        },
+        "lease_after": {
+          "781b8c06b0294ee99fb97088fbd8ee22": 1793113436084,
+          "e4915834ccad4b8aaf4a68067b4ec2ec": 1793113438117,
+          "bbf2a8d8541b46208bb298aa453ff80f": 1793113440151
+        },
+        "new_lease_ids": [
+          "bbf2a8d8541b46208bb298aa453ff80f"
+        ],
+        "released_within_10_seconds": false,
+        "model_reached": {
+          "calls": 7,
+          "blocked": 1
+        }
+      }
+    },
+    "browser": {
+      "result": "FAIL",
+      "frontend": "http://127.0.0.1:5669/data_copilot/",
+      "entry": "anonymous entry ended at chrome-error://chromewebdata/",
+      "login": "PASS: synthetic tenant A via explicit trailing-slash login form",
+      "submit": "浏览器验收：请完成一次简短分析。",
+      "rendered_answer": "local-copy-ok",
+      "run_status": "error",
+      "thread_id": "bd366473-4c63-48f8-a1ba-9e830be817da",
+      "logout": "clicked logout; ended at chrome-error://chromewebdata/",
+      "login_without_slash": {
+        "http": 301,
+        "location": "http://127.0.0.1/data_copilot/login/"
+      },
+      "scope": "UI answer rendered, but server run errored and redirect flow failed; not E2E PASS"
+    },
+    "head_and_legacy": "PASS",
+    "cleanup": "PASS"
+  },
+  "scope": "current committed source; local test model; isolated MySQL/Redis; not production",
+  "acceptance_result": "FAIL: actual graph teardown/lease release and browser redirect",
+  "historical_build_guard_stop": {
+    "service": "fastapi",
+    "disk": false,
+    "idle": true,
+    "wall": false
+  },
+  "temporary_cleanup": {
+    "result": "PASS",
+    "removed_root": "C:\\Users\\34226\\AppData\\Local\\Temp\\dda-five-8e552f3-q35798xo",
+    "helper_removed": true,
+    "private_state_removed": true,
+    "finished": "2026-10-27T23:10:40"
+  }
+}

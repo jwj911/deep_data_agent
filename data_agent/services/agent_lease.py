@@ -451,9 +451,13 @@ class AgentLeaseManager:
         try:
             yield lease
         finally:
-            _active_agent_subject.reset(subject_token)
-            _active_agent_lease.reset(lease_token)
-            self.release(lease)
+            try:
+                _active_agent_subject.reset(subject_token)
+            finally:
+                try:
+                    _active_agent_lease.reset(lease_token)
+                finally:
+                    self.release(lease)
 
     @asynccontextmanager
     async def hold_async(self, subject: str) -> AsyncIterator[AgentLease]:
@@ -472,9 +476,13 @@ class AgentLeaseManager:
         try:
             yield lease
         finally:
-            _active_agent_subject.reset(subject_token)
-            _active_agent_lease.reset(lease_token)
-            self.release(lease)
+            try:
+                _active_agent_subject.reset(subject_token)
+            finally:
+                try:
+                    _active_agent_lease.reset(lease_token)
+                finally:
+                    self.release(lease)
 
 
 global_agent_lease_manager = AgentLeaseManager()

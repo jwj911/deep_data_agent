@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "transport": "direct graph, isolated Linux and Redis",
+  "image": "deep-data-agent-backend:local",
+  "python": "3.12.13",
+  "checks": [
+    "cross-task early close",
+    "cross-task cancellation",
+    "deadline",
+    "node error",
+    "actual cross-context Token reset failure propagates and releases"
+  ],
+  "leases": {
+    "acquired": 5,
+    "released": 5
+  },
+  "redis_keys_after_each_case": 0,
+  "source_sha256": {
+    "data_agent/services/agent_service.py": "f8478d329f455434ce3c2a6421dbdc18b355d00f0373a9912a6cab89144ad20b",
+    "data_agent/services/agent_lease.py": "11db15a42d8caae0e1e0fb579452badf92268d82ad6d7e663b23206e611a1b92"
+  },
+  "versions": {
+    "deepagents": "0.7.6",
+    "langgraph": "1.2.11",
+    "langgraph-api": "0.7.28",
+    "redis": "8.1.0"
+  },
+  "controls": "network none Redis, no persistence, shared loopback namespace, source read-only, no external services",
+  "redis_container_removed": true
+}

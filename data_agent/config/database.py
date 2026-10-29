@@ -3,12 +3,15 @@ from threading import RLock
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, inspect
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
 
 from data_agent.config.config import config
+from data_agent.config.schema_contract import (UnknownDatabaseSchemaError,
+                                               ensure_revision_schema)
 from data_agent.models.managed_file import ManagedFile  # noqa: F401
 from data_agent.models.session import Message, Session
 from data_agent.models.user import Base
@@ -89,30 +92,44 @@ def run_migrations() -> None:
     This is idempotent: Alembic performs no changes when the database is
     already at head.
     """
-    command.upgrade(_alembic_config(), "head")
+    _prepare_database()
 
 
 def _prepare_database() -> None:
-    """Prepare the database via versioned migrations.
-
-    Three cases are handled without ever dropping or recreating existing data:
-
-    * Database already tracked by Alembic (``alembic_version`` exists): upgrade
-      to head (idempotent when already at head).
-    * Legacy database built by the old ``create_all`` path (``users`` exists but
-      ``alembic_version`` does not): its structure matches the initial baseline,
-      so stamp that revision and apply every later migration.
-    * Brand-new empty database (neither table exists): upgrade to head to
-      create the schema.
-    """
-    alembic_cfg = _alembic_config()
-    tables = set(inspect(get_engine()).get_table_names())
-    has_version = "alembic_version" in tables
-    has_business = "users" in tables
-
-    if has_business and not has_version:
-        command.stamp(alembic_cfg, _LEGACY_SCHEMA_REVISION)
-    command.upgrade(alembic_cfg, "head")
+    """Identify the complete schema before any startup stamp or DDL."""
+    with _database_lock:
+        alembic_cfg = _alembic_config()
+        engine = get_engine()
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        if inspector.get_view_names():
+            raise UnknownDatabaseSchemaError()
+        if "alembic_version" in tables:
+            try:
+                with engine.connect() as connection:
+                    revisions = connection.execute(
+                        text("SELECT version_num FROM alembic_version")
+                    ).scalars().all()
+                known = {
+                    rev.revision
+                    for rev in ScriptDirectory.from_config(
+                        alembic_cfg
+                    ).walk_revisions()
+                }
+                if len(revisions) != 1 or revisions[0] not in known:
+                    raise UnknownDatabaseSchemaError()
+            except UnknownDatabaseSchemaError:
+                raise
+            except Exception as exc:
+                raise UnknownDatabaseSchemaError() from exc
+            ensure_revision_schema(engine, alembic_cfg, revisions[0])
+        elif tables:
+            ensure_revision_schema(
+                engine, alembic_cfg, _LEGACY_SCHEMA_REVISION,
+                unversioned=True,
+            )
+            command.stamp(alembic_cfg, _LEGACY_SCHEMA_REVISION)
+        command.upgrade(alembic_cfg, "head")
 
 
 def init_db():

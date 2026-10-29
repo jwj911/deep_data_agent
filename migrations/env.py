@@ -58,18 +58,28 @@ def run_migrations_online() -> None:
     Create an engine from the application database URL and associate a live
     connection with the migration context.
     """
+    provided = config.attributes.get("connection")
+    if provided is not None:
+        _run_with_connection(provided)
+        return
+
     connectable = create_engine(_database_url())
+    try:
+        with connectable.connect() as connection:
+            _run_with_connection(connection)
+    finally:
+        connectable.dispose()
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_as_batch=True,
-            compare_type=True,
-        )
 
-        with context.begin_transaction():
-            context.run_migrations()
+def _run_with_connection(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():

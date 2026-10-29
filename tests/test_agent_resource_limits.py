@@ -192,6 +192,16 @@ def test_create_agent_graph_uses_fixed_model_and_call_limits(
     model_factory = Mock(return_value=model)
     graph_factory = Mock(return_value=compiled_graph)
     apply_bounds = Mock(return_value=bounded_graph)
+    child = {"name": "general-purpose", "runnable": object()}
+    child_factory = Mock(return_value=child)
+    http_client, http_async_client = Mock(), Mock()
+    monkeypatch.setattr(
+        agent_service, "budget_http_clients",
+        lambda: (http_client, http_async_client),
+    )
+    monkeypatch.setattr(
+        agent_service, "_general_purpose_subagent", child_factory,
+    )
     monkeypatch.setattr(agent_service, "ChatOpenAI", model_factory)
     monkeypatch.setattr(agent_service, "create_deep_agent", graph_factory)
     monkeypatch.setattr(
@@ -212,11 +222,14 @@ def test_create_agent_graph_uses_fixed_model_and_call_limits(
         timeout=config.MODEL_REQUEST_TIMEOUT_SECONDS,
         max_retries=config.MODEL_MAX_RETRIES,
         max_tokens=config.MODEL_MAX_OUTPUT_TOKENS,
+        http_client=http_client,
+        http_async_client=http_async_client,
+        cache=False,
     )
     call = graph_factory.call_args
     assert call.kwargs["model"] is model
     middleware = call.kwargs["middleware"]
-    assert len(middleware) == 2
+    assert len(middleware) == 3
     assert isinstance(middleware[0], ModelCallLimitMiddleware)
     assert middleware[0].run_limit == config.AGENT_MODEL_CALL_LIMIT
     assert middleware[0].exit_behavior == "error"
@@ -224,6 +237,11 @@ def test_create_agent_graph_uses_fixed_model_and_call_limits(
     assert middleware[1].tool_name is None
     assert middleware[1].run_limit == config.AGENT_TOOL_CALL_LIMIT
     assert middleware[1].exit_behavior == "error"
+    assert isinstance(
+        middleware[2], agent_service.AggregateToolBudgetMiddleware,
+    )
+    assert call.kwargs["subagents"] == [child]
+    child_factory.assert_called_once()
     apply_bounds.assert_called_once_with(compiled_graph)
 
 

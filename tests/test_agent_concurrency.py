@@ -1,4 +1,6 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -976,3 +978,384 @@ def test_query_route_preserves_async_cancellation(monkeypatch) -> None:
                 current_user=_actor(1),
             )
         )
+
+
+@pytest.mark.parametrize("completion", ["complete", "close"])
+def test_api_steps_release_real_lease_across_task_contexts(completion) -> None:
+    from langgraph_api.asyncio import ValueEvent, wait_if_not_done
+
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    seen_subjects = []
+
+    async def run_node(state, config):
+        seen_subjects.append(agent_lease.get_active_agent_subject())
+        assert config["configurable"]["langgraph_auth_user_id"] == "17"
+        return {"count": state["count"] + 1}
+
+    builder = StateGraph(_GraphState)
+    builder.add_node("run_node", run_node)
+    builder.add_edge(START, "run_node")
+    builder.add_edge("run_node", END)
+    graph = agent_service._apply_graph_resource_bounds(
+        builder.compile(), lease_manager=manager,
+    )
+
+    async def consume():
+        stream = graph.astream(
+            {"count": 0}, config=_auth_config("17"), stream_mode="values",
+        )
+        done = ValueEvent()
+        try:
+            assert await wait_if_not_done(anext(stream), done) == {"count": 0}
+            assert agent_lease.get_active_agent_subject() is None
+            if completion == "complete":
+                assert await wait_if_not_done(anext(stream), done) == {"count": 1}
+                with pytest.raises(StopAsyncIteration):
+                    await wait_if_not_done(anext(stream), done)
+        finally:
+            await asyncio.create_task(stream.aclose())
+        assert client.active_count == 0
+        assert agent_lease.get_active_agent_lease() is None
+        assert agent_lease.get_active_agent_subject() is None
+
+    asyncio.run(consume())
+    if completion == "complete":
+        assert seen_subjects == ["17"]
+    assert sum("agent_lease_release_v1" in call[0] for call in client.eval_calls) == 1
+
+
+@pytest.mark.parametrize("outcome", ["error", "timeout", "cancel"])
+def test_cross_task_stream_failure_releases_before_return(monkeypatch, outcome):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    monkeypatch.setattr(
+        config, "AGENT_RUN_TIMEOUT_SECONDS", 0.1 if outcome == "timeout" else 10,
+    )
+
+    async def run_node(state):
+        assert agent_lease.get_active_agent_subject() == "17"
+        started.set()
+        try:
+            if outcome == "error":
+                raise RuntimeError("synthetic-node-failure")
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    builder = StateGraph(_GraphState)
+    builder.add_node("run_node", run_node)
+    builder.add_edge(START, "run_node")
+    builder.add_edge("run_node", END)
+    graph = agent_service._apply_graph_resource_bounds(
+        builder.compile(), lease_manager=manager,
+    )
+
+    async def consume():
+        stream = graph.astream(
+            {"count": 0}, config=_auth_config("17"), stream_mode="values",
+        )
+        baseline = asyncio.all_tasks()
+        assert await asyncio.create_task(anext(stream)) == {"count": 0}
+        step = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(started.wait(), 2)
+        if outcome == "cancel":
+            step.cancel()
+            expected, message = asyncio.CancelledError, None
+        elif outcome == "timeout":
+            expected, message = AgentTimeoutError, AGENT_TIMEOUT
+        else:
+            expected, message = RuntimeError, "synthetic-node-failure"
+        with pytest.raises(expected, match=message):
+            await step
+        await asyncio.create_task(stream.aclose())
+        assert stopped.is_set()
+        assert client.active_count == 0
+        assert agent_lease.get_active_agent_subject() is None
+        assert agent_lease.get_active_agent_lease() is None
+        assert not (asyncio.all_tasks() - baseline)
+
+    asyncio.run(consume())
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+@pytest.mark.parametrize("outcome", ["close", "timeout"])
+def test_stream_backpressure_keeps_execution_bounded_and_cleanup_owned(
+    monkeypatch, outcome,
+):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    produced = []
+    stopped = asyncio.Event()
+    monkeypatch.setattr(config, "AGENT_RUN_TIMEOUT_SECONDS", 0.1)
+
+    async def source(self, input, config, **kwargs):
+        owner = asyncio.current_task()
+        try:
+            for count in range(100):
+                assert agent_lease.get_active_agent_subject() == "17"
+                produced.append(count)
+                yield count
+        finally:
+            assert asyncio.current_task() is owner
+            assert agent_lease.get_active_agent_subject() == "17"
+            stopped.set()
+
+    monkeypatch.setattr(agent_service.CompiledStateGraph, "astream", source)
+    graph = agent_service._apply_graph_resource_bounds(
+        _compiled_test_graph([]), lease_manager=manager,
+    )
+
+    async def consume():
+        stream = graph.astream({}, config=_auth_config("17"))
+        assert await asyncio.create_task(anext(stream)) == 0
+        # Let the producer fill one buffered slot and block with its next item.
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert produced == [0, 1, 2]
+        assert client.active_count == 1
+        assert agent_lease.get_active_agent_subject() is None
+        if outcome == "timeout":
+            await asyncio.wait_for(stopped.wait(), 2)
+            assert client.active_count == 0
+            assert await asyncio.create_task(anext(stream)) == 1
+            with pytest.raises(AgentTimeoutError, match=AGENT_TIMEOUT):
+                await asyncio.create_task(anext(stream))
+        await asyncio.create_task(stream.aclose())
+        assert stopped.is_set()
+        assert client.active_count == 0
+
+    asyncio.run(consume())
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+def test_interleaved_streams_keep_separate_subjects_and_leases():
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    seen = []
+
+    async def run_node(state, config):
+        subject = agent_lease.get_active_agent_subject()
+        lease = agent_lease.get_active_agent_lease()
+        assert subject == config["configurable"]["langgraph_auth_user_id"]
+        seen.append((subject, lease.lease_id))
+        return {"count": state["count"] + 1}
+
+    builder = StateGraph(_GraphState)
+    builder.add_node("run_node", run_node)
+    builder.add_edge(START, "run_node")
+    builder.add_edge("run_node", END)
+    graph = agent_service._apply_graph_resource_bounds(
+        builder.compile(), lease_manager=manager,
+    )
+
+    async def consume():
+        streams = [
+            graph.astream(
+                {"count": 0}, config=_auth_config(subject), stream_mode="values",
+            )
+            for subject in ("17", "18")
+        ]
+        try:
+            for stream in streams:
+                assert await anext(stream) == {"count": 0}
+                assert agent_lease.get_active_agent_subject() is None
+            assert client.active_count == 2
+            for stream in streams:
+                assert await asyncio.create_task(anext(stream)) == {"count": 1}
+                with pytest.raises(StopAsyncIteration):
+                    await asyncio.create_task(anext(stream))
+        finally:
+            for stream in streams:
+                await asyncio.create_task(stream.aclose())
+        assert client.active_count == 0
+        assert agent_lease.get_active_agent_subject() is None
+
+    asyncio.run(consume())
+    assert {subject for subject, _ in seen} == {"17", "18"}
+    assert len({lease for _, lease in seen}) == 2
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 2
+
+
+def test_nested_graph_task_reuses_parent_lease_and_restores_identity():
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    child = agent_service._apply_graph_resource_bounds(
+        _compiled_test_graph([]), lease_manager=manager,
+    )
+
+    async def run_node(state):
+        lease = agent_lease.get_active_agent_lease()
+        assert agent_lease.get_active_agent_subject() == "17"
+        with pytest.raises(AgentIdentityError):
+            async with manager.hold_async("18"):
+                pytest.fail("A different subject must not reuse the lease")
+        result = await child.ainvoke(state, config=_auth_config("18"))
+        assert agent_lease.get_active_agent_lease() is lease
+        assert agent_lease.get_active_agent_subject() == "17"
+        assert client.active_count == 1
+        return result
+
+    builder = StateGraph(_GraphState)
+    builder.add_node("run_node", run_node)
+    builder.add_edge(START, "run_node")
+    builder.add_edge("run_node", END)
+    graph = agent_service._apply_graph_resource_bounds(
+        builder.compile(), lease_manager=manager,
+    )
+    assert asyncio.run(graph.ainvoke(
+        {"count": 0}, config=_auth_config("17"),
+    )) == {"count": 1}
+    assert client.active_count == 0
+    assert sum("agent_lease_acquire_v1" in s for s, _ in client.eval_calls) == 1
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+@pytest.mark.parametrize("completion", ["complete", "close"])
+def test_sync_stream_can_resume_and_close_in_another_context(completion):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    graph = agent_service._apply_graph_resource_bounds(
+        _compiled_test_graph([]), lease_manager=manager,
+    )
+    stream = graph.stream(
+        {"count": 0}, config=_auth_config("17"), stream_mode="values",
+    )
+    try:
+        assert next(stream) == {"count": 0}
+        assert agent_lease.get_active_agent_subject() is None
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            if completion == "complete":
+                assert pool.submit(next, stream).result() == {"count": 1}
+                assert copy_context().run(next, stream, None) is None
+            pool.submit(stream.close).result()
+    finally:
+        stream.close()
+    assert agent_lease.get_active_agent_lease() is None
+    assert client.active_count == 0
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("failed_reset", ["subject", "lease"])
+def test_lease_release_is_attempted_when_context_reset_raises(
+    monkeypatch, mode, failed_reset,
+):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    attempts = []
+
+    class ObservedContextVar:
+        def __init__(self, variable, label):
+            self.variable, self.label = variable, label
+
+        def get(self):
+            return self.variable.get()
+
+        def set(self, value):
+            return self.variable.set(value)
+
+        def reset(self, token):
+            attempts.append(self.label)
+            self.variable.reset(token)
+            if self.label == failed_reset:
+                raise ValueError("synthetic-reset-failure")
+
+    for name, label in (
+        ("_active_agent_subject", "subject"), ("_active_agent_lease", "lease"),
+    ):
+        monkeypatch.setattr(agent_lease, name, ObservedContextVar(
+            getattr(agent_lease, name), label,
+        ))
+
+    async def exercise():
+        async with manager.hold_async("17"):
+            assert client.active_count == 1
+
+    with pytest.raises(ValueError, match="synthetic-reset-failure"):
+        if mode == "async":
+            asyncio.run(exercise())
+        else:
+            with manager.hold("17"):
+                assert client.active_count == 1
+    assert attempts == ["subject", "lease"]
+    assert agent_lease.get_active_agent_subject() is None
+    assert agent_lease.get_active_agent_lease() is None
+    assert client.active_count == 0
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+def test_repeated_cancellation_waits_for_owned_stream_cleanup(monkeypatch):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+    started = asyncio.Event()
+    cleaning = asyncio.Event()
+    finish_cleanup = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def source(self, input, config, **kwargs):
+        try:
+            yield 0
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await finish_cleanup.wait()
+            cleaned.set()
+
+    monkeypatch.setattr(agent_service.CompiledStateGraph, "astream", source)
+    graph = agent_service._apply_graph_resource_bounds(
+        _compiled_test_graph([]), lease_manager=manager,
+    )
+
+    async def consume():
+        baseline = asyncio.all_tasks()
+        stream = graph.astream({}, config=_auth_config("17"))
+        assert await asyncio.create_task(anext(stream)) == 0
+        step = asyncio.create_task(anext(stream))
+        await asyncio.wait_for(started.wait(), 2)
+        step.cancel()
+        await asyncio.wait_for(cleaning.wait(), 2)
+        step.cancel()
+        await asyncio.sleep(0)
+        assert not step.done()
+        finish_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await step
+        await stream.aclose()
+        assert cleaned.is_set()
+        assert client.active_count == 0
+        assert not (asyncio.all_tasks() - baseline)
+
+    asyncio.run(consume())
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1
+
+
+def test_stream_close_propagates_cleanup_failure_after_releasing(monkeypatch):
+    client = _FakeLeaseRedis()
+    manager = _manager(client, _Clock())
+
+    async def source(self, input, config, **kwargs):
+        try:
+            yield 0
+            await asyncio.Event().wait()
+        finally:
+            raise RuntimeError("synthetic-cleanup-failure")
+
+    monkeypatch.setattr(agent_service.CompiledStateGraph, "astream", source)
+    graph = agent_service._apply_graph_resource_bounds(
+        _compiled_test_graph([]), lease_manager=manager,
+    )
+
+    async def consume():
+        stream = graph.astream({}, config=_auth_config("17"))
+        assert await asyncio.create_task(anext(stream)) == 0
+        with pytest.raises(RuntimeError, match="synthetic-cleanup-failure"):
+            await asyncio.create_task(stream.aclose())
+        assert client.active_count == 0
+        assert agent_lease.get_active_agent_subject() is None
+
+    asyncio.run(consume())
+    assert sum("agent_lease_release_v1" in s for s, _ in client.eval_calls) == 1

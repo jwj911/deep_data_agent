@@ -5,6 +5,207 @@
 
 ## [Unreleased]
 
+### 版本化恢复辅助脚本与 Linux 门禁（2026-10-29）
+
+- 恢复传输、准入回归、运行时盘点及模型评测/离线控制脚本纳入 `scripts/`，
+  固定公开任务集同行；增加独立目录下 CLI 入口和修改过的工具二进制拒绝检查。
+- 固定 restic 0.19.1 的 Windows/Linux 归档及二进制哈希，工具只从官方发布获取；
+  CI 真实执行 Linux 原子发布/拒绝/失败清理，并保留脱敏 JSON 证据。
+- Windows 首次 HTTP 子进程启动等待超时与后台目录权限失败保留；
+  精确提交 Hosted 结果按 PR checks 和工作区根回执裁定，不自动批准生产。
+- 首轮 Hosted 的 Linux 原子恢复准入和完整容器恢复通过，加密篡改夹具
+  遇到只读数据包写入拒绝。夹具临时增加自身合成包的写权限，并在异常路径
+  恢复原字节与权限；两项回归先红后绿，最终 Hosted 另行核对。
+
+### 收紧恢复内容准入（2026-10-28）
+
+- 格式 1 清单拒绝重复 JSON 字段及宽松数字类型；在读取归档前核验全部
+  文件大小，并限制清单、总字节和归档条目数。
+- 归档拒绝重复/规范化重名路径、文件与子目录冲突、压缩包和稀疏条目；
+  保留正常 tar 根目录及隐式目录兼容性，拒绝发生在 Docker 恢复调用前。
+- 工作区备份传输入口检查完整快照文件集合、逐文件有界下载和哈希校验，
+  全部通过后才原子发布新目标；错误清单、夹带文件和下载失败不留下最终目标。
+- 17 项新增仓库回归及真实本地 restic 负控已建立；结果与外部运行条件见
+  [本轮验证](.trae/specs/harden-recovery-admission/validation.md)。
+  生产运行时、自动异地备份与真实模型效果门禁保持独立。
+- 用户授权补齐隔离依赖后，134 个活动包全部匹配哈希锁且依赖关系完整；
+  Windows 全量后端 750 项通过，140.45 秒，85 个源码/测试文件与锁文件
+  在运行前后摘要一致。宿主旧依赖、记录器权限错误及此前审批拒绝保留为历史。
+
+### 合计预算、依赖锁与恢复门禁（2026-10-28）
+
+- 同一 run 的父子、摘要和 SDK 重试共用原子账本；模型发送前预留，
+  工具执行前扣额，取消不退额，分支拒绝持续到顶层且不写成功缓存。
+- 启动迁移前识别完整 schema；未知或漂移结构显式拒绝，不自动 stamp。
+  保留已知 legacy/迁移 head 的正确升级路径。
+- API 升至 active minor `0.16.8`，建立包含传递依赖、跨平台条件和 SHA-256
+  的安装锁；Docker/Hosted 强制哈希安装。新锁 Windows 733 项回归通过，
+  真实 MySQL 20 控制例和真实 Redis/TCP 20 预算控制例通过。
+- LangGraph 主历史挂载独立卷；增加三域停写备份、清单/归档兼容性与空目标
+  校验、独立恢复演练及负控。四 Hosted Job 检出 PR head 精确 SHA，
+  新增 Chromium 认证/对话和全域恢复门禁，执行结果以对应 SHA 回执为准。
+- Hosted 修复轮使匿名断言严格匹配新锁 API 的 401；浏览器控制器延后加载
+  HTTPX，恢复在成功 bootstrap 后独立执行。恢复端口识别同端口双栈绑定；
+  内存脚本通过子进程输入管道发送，归档保持文件流式传输。
+  相关回归先红后绿，恢复/锁/浏览器定向 44 项通过；历史失败轮保留在
+  [运行时记录](.trae/specs/stabilize-delivery-baseline/validation.md)。
+- 实施 SHA `1910fdf` 的 Hosted run `40635353761` 四 Job 全部成功：
+  Linux 后端 733 项、135 个活动包锁匹配、预算/MySQL 各 20 项、
+  新锁五服务和 Chromium 七项通过。三域独立恢复实测 31.757 秒，
+  确认写入丢失 0；六项备份负控、非空目标拒绝、head/legacy 与清理通过。
+  最终文档提交自身的精确 SHA 回执存工作区根，不预写未来运行结果。
+- 本机新锁 Linux 构建因磁盘保护中止；未以不完整下载的哈希改写锁。
+  前轮证据与任务勾选保留，生产持久业务 NO-GO；人工快照不承诺自动
+  异地备份、生产运行时或真实模型效果。
+
+### 修复静态认证跳转并重验五服务（2026-10-28）
+
+- Nginx 使用相对 Location，修复登录及目录跳转丢失宿主映射端口；新增真实
+  HTTP 的 Origin/端口/路径/查询回归门禁并接入 Container Smoke CI。
+- 从当前工作树与原 Dockerfile 重建生产静态镜像。前端四门禁、新后端镜像
+  194 项回归与 pip check、五服务健康、双用户/管理员/文件隔离均通过。
+- 浏览器匿名入口、登录、对话、深链接刷新、错误密码、退出与再登录通过；
+  正常 run 最终 success，取消 interrupted，timeout 为稳定 agent_timeout。
+  LangGraph 5 次、FastAPI 1 次租约取得/释放相符，各结束点无 lease key。
+- 两次 Redis 故障自动恢复、空库/head 重启/known legacy canary 迁移通过。
+  原启动命令保持，模型仅为隔离 HTTP/SSE 传输替身。IDE 浏览器桥接两次超时后，
+  本机浏览器完成剩余 UI 检查；未将工具超时认定为产品失败。
+- 本轮独立资源已清理，原五个业务容器及缓存镜像保持。未改历史任务勾选、
+  未提交/推送/合并；本轮 Hosted、合计预算、恢复与真实模型等门禁保持，生产
+  仍 NO-GO。条件、版本、指纹及机器证据见
+  [本轮部署验收](.trae/specs/repair-static-auth-redirect/validation.md)。
+
+### 修复流退出的身份上下文与租约释放（2026-10-27）
+
+- `repair-async-lease-context` 将异步图执行、deadline、身份绑定与关闭放入
+  同一个受控 Task；容量为 1 的队列保持背压，消费者关闭/取消时等待清理。
+  重复取消不会打断已开始的清理，清理异常继续传播。同步流使用私有 Context。
+- 两种租约上下文的 reset 与 release 分别由 `finally` 保证，身份清理异常
+  仍尝试一次释放。嵌套单租约、复制、身份、预算与错误映射合同保留。
+- 新增 17 项回归，全量后端 **619 项通过，89.67 秒**；真实工厂 TCP HTTP
+  wait/stream/取消/timeout 与身份负控通过，4 次租约取得及释放相符。
+  前轮部署精确依赖下 Linux **194 项通过，17.00 秒**，独立 Redis 的
+  真实 HTTP 4 次取得/释放相符、最终 DB 为 0 个 key。isort 与发布契约通过；
+  环境、源码及控制条件见
+  [本轮验收](.trae/specs/repair-async-lease-context/validation.md)。
+- 前轮五服务失败证据保持；静态认证跳转尚未修复，未重跑完整五服务/浏览器，
+  未提交或推送，本轮工作树未取得 Hosted 证据，生产仍 NO-GO。
+
+### 本机当前源码五服务验收（2026-10-27）
+
+- 从提交 `8e552f3` 与原 Dockerfile 重建独立前后端镜像。后端使用文件系统
+  不变、仅指定清华 PyPI 地址的临时基底；未修改源码、依赖文件或全局配置。
+  实际依赖重新解析为 DeepAgents 0.7.32、LangGraph 1.2.18、API 0.7.28，
+  新镜像 **150 项通过，12.29 秒**，pip check 与容器源码指纹核对通过。
+- 五服务健康、空库/双用户/受管文件冒烟、Redis 故障自动恢复、head 重启和
+  known legacy canary 迁移通过；原有容器与镜像保持，本轮独立资源已清理。
+- **本机完整联调未通过**：实际 LangGraph 工厂图的 wait/stream 退出发生
+  身份 ContextVar reset 异常，随后租约释放未执行；取消请求虽为 200，
+  run 为 error，新增 Redis 租约在 10 秒内未释放。
+- 浏览器从显式登录页可登录、提交并渲染测试答案，但 run 为 error；
+  匿名入口/退出登录的 301 跳转丢失宿主端口。任务 6 与验收 18/19 未勾，
+  先独立修复异步租约上下文和静态认证跳转，再继续合计预算。
+- Hosted 与既有复制回归保留其原通过范围，生产仍 NO-GO。完整条件、
+  失败响应和清理证据见 [补验记录](.trae/specs/repair-agent-graph-copy/validation.md)。
+
+### 本机 Linux 容器补验（2026-10-27）
+
+- 用户启动 Engine 后确认 Docker 29.4.1 Linux/amd64 可用。使用缓存依赖镜像
+  和只读当前源码，在无外部网络、只读根与有界 RAM 临时目录的容器中运行
+  复制/TCP HTTP 回归，**150 项通过，18.81 秒**；四文件源码指纹一致，
+  自有容器自动清理，其他运行容器保持。
+- 缓存环境为 Python 3.12.13、DeepAgents 0.7.6、LangGraph 1.2.11、
+  API 0.7.28；它不是新建发布镜像，该阶段完整本机五服务重建/联调未执行。
+  项目指南的系统盘 10 GB 为建议值；此前将其表述成硬门槛过严。
+  完整镜像冒烟与当前 PR 的 Hosted 证据继续独立保留，见
+  [补验记录](.trae/specs/repair-agent-graph-copy/validation.md)。
+
+### 图复制修复的 HTTP 与部署补验（2026-10-27）
+
+- 新增 `scripts/verify_agent_graph_http.py` 与 TCP HTTP 回归，运行安装版
+  LangGraph API 的真实路由和 worker；wait/stream/state、身份与 owner 负控、
+  复制依赖和取消释放十个断言通过。三次租约取得与释放相符。
+- 使用测试模型/租约、隔离 SQLite/inmem 和动态测试签名密钥；启动时先初始化
+  NumPy 2.5.2，避免本机首次在 worker 加载原生扩展的阻塞。该条件与结果一起
+  记录，未修改产品运行时或依赖，未将替身证据等同于真实 MySQL/Redis/模型。
+- 全量后端 **602 项通过**，isort、发布契约与差异检查通过；验证进程及本轮
+  临时目录已清理，修复文件字节指纹保持不变。
+- 本机 Docker 初查因磁盘和日志写权限阻碍未能运行，该状态保留。后续经授权
+  安装 gh 2.103.3，四个代码文件提交为 `8e552f3` 并推送到 `fix/agent-graph-copy`。
+- PR #1 的 run `40507150345` 四 Job 均 success：Backend 602 项通过；
+  Frontend、Release Contracts、Container Smoke 成功。Linux 源码镜像空库、
+  Redis 故障恢复、head 重启、known legacy 升级及清理均通过。
+- PR 测试合并提交 `18ceda2d9ec907c0a9da9c842a737694b4f74696` 与修复 head
+  代码树完全相同；PR 尚未合并，本机 Docker 未恢复，生产门禁仍保持。证据见
+  [补验记录](.trae/specs/repair-agent-graph-copy/validation.md)。
+
+### 修复 Agent 图复制后的运行失败（2026-10-27，本机离线验收）
+
+- `repair-agent-graph-copy` 修复 `REV-A01`：`Pregel.copy` 用实例属性重建子类，
+  原后置注入的 `_agent_lease_manager` 被基础构造器忽略。资源图现在显式接收
+  并保存该依赖，工厂在构造时注入，复制后继续使用同一管理器。
+- 保持 `CompiledStateGraph`、`copy`/`with_config`/重复复制与 API `get_graph`
+  合同；原图不被修改，checkpoint/store 注入可实际读写。
+- 新增 149 项离线回归，覆盖原图/复制图四种调用、真实 DeepAgents 工厂、
+  两主体/请求 ID、递归覆盖、租约拒绝、模型/工具预算错误、同步 deadline、
+  异步超时/取消和提前关闭流后的单次释放。
+- Python 3.12.9 全量后端 **601 项通过**；isort、标准库发布契约与
+  `git diff --check` 通过。使用离线模型/租约与内存存储，禁用 dotenv、
+  追踪、自动 pytest 插件和字节码；未使用真实凭据、业务文件或模型/搜索。
+- 本轮不升级依赖、不改前端或部署配置；父子/摘要合计预算 `REV-A02` 和
+  REST 文件缓存 `REV-A03` 保持开放。下一轮为 `enforce-aggregate-agent-budget`。
+- 未提交/推送、未验 Linux 镜像、真实 HTTP、Hosted 或生产。下方复审数字和
+  A/B 原始判断保留为修复前快照；本机修复通过不解除其他生产 NO-GO 门禁。
+
+### 项目现代化文档复审（2026-10-27，文档结论收口）
+
+- `review-project-modernization` 的双独立复核与文档结论已收口，最终治理交付待
+  独立验收；正式结论见 [项目分析](.trae/documents/project_analysis.md)，后续安排见
+  [Roadmap](.trae/documents/roadmap.md)。12 个历史规格为 11 个功能迭代加 1 个
+  audit，本轮另完成一次现代化 review 文档审查，不是第 12 个功能。
+- 范围覆盖前后端、两个 Agent 入口、身份/租户、文件/缓存/预算、迁移恢复、
+  构建部署、依赖、遗留模块及业务效果证据。保留第一方 JWT/current role、
+  owner、固定 Origin、受管 UUID、Redis 恢复、浅 readiness 和既有发布门禁；
+  不建议全量重写。主要业务短板是完整确定性计算、同源图表/报告与可取得产物。
+- 48 个主来源为 18 AUD + 30 REV，另有 3 条历史追溯；A/B 各覆盖 51 条原值，
+  主项 2/2、1/2、0/2 支持分布为 47/0/1，不是 47 个开放 bug。
+  `AUD-004` 的 0/2 否定无条件完整关闭，两票 `exists_current=true` 指向同步
+  Redis 残余 P2；原 `ainvoke` 修复与历史验收保留，合计预算单独归 `REV-A02`。
+- **当前预算作用域修正**：8 次模型/12 次工具是主图局部 middleware 限额，
+  父子 `task`、summary、retry 没有共享 run 总账。本机默认离线探针取得
+  parent 2 + child 8 = 10 次模型、child 19 + parent task 1 = 20 次工具，
+  child recursion 为 9999；仅将模型 limit 收紧为 1 时 summary + parent 实际
+  调用 2 次、父计数 1。deadline、单次模型参数、身份与单租约保护仍有效；
+  不代表所有 run 无保护，也未测实际收费、发生率或同步 IO 硬中断。
+- `REV-A01`：本机 API 0.7.28 / LangGraph 1.2.11 / DeepAgents 0.7.5 的实际
+  `copy`、`with_config`、API `get_graph` 复制路径丢失租约 manager，复制图调用
+  报错；原始图四种调用面仍可用。条件 P1 限于该组合承担主 run 的复制路径，
+  不是原图构造失败。本轮未修复，不外推 Linux 镜像、真实 HTTP 或生产。
+- `REV-A03`：FastAPI REST 回答缓存 TTL 24 小时，未绑定文件活性/版本依赖；
+  当前文件重新分析与显式历史快照合同须另定。仅影响 REST 回答缓存，不影响
+  绕过该缓存的 LangGraph Chat UI；失效模拟不等于真实文件删除/过期 E2E。
+- 优先前三轮为 `repair-agent-graph-copy` →
+  `enforce-aggregate-agent-budget` → `deliver-controlled-analysis-slice`；
+  UI 真实状态/行为回归、稳定兼容矩阵与评测设计可并行。代码修复、依赖升级和
+  新功能分别另立规格，本轮只改文档，不实施这些建议。
+- 生产持久业务与不可重建数据仍为 **NO-GO**：未知 schema 拒绝 `AUD-007`、
+  身份/thread/file 一致恢复 `RR-001` 和目标部署运行证据未满足。
+  schema/restore 门禁按相应持久目标触发，不锁定非敏感、可重建、隔离且不自动
+  外发的统计开发；真实 owner/文件边界和有效资源限制仍是接入前置。
+- 本轮代码基线为 `main` @ `3d4ac6dbb540d7f8a46430f3bc311c071d4ba438`。
+  2026-10-27 基线 Agent 实际执行 Python 3.12.9 下 pytest **452**、迁移
+  **8**、release contract pytest **159** 项通过；isort、发布契约脚本、
+  Alembic 唯一 head `b6f4e8c2a9d1`、安全 Compose 静态解析和差异检查通过。
+  本次文档同步未重跑上述门禁，不是用户给定的验收数据。
+- 已有缓存 Node.js 22.22.2 / pnpm 10.5.1 下 typecheck、零警告 lint、
+  format:check、build 通过；默认 Node.js 25.2.1 / pnpm 10.33.2 不符契约。
+  Docker CLI 29.4.1、Compose 5.1.3、Desktop 4.71.0.225177 已安装，但
+  `dockerDesktopLinuxEngine` pipe 缺失；`gh` 缺失，本 SHA 四个 Hosted Job、
+  容器、浏览器 E2E、真实模型/搜索效果、成本、延迟及生产 restore 均未知或未测。
+- 文档审查完成不等于运行/生产放行。下方 2026-08-21 等历史正文、预算说法、
+  问题原等级、候选顺序与 SHA/run/Job/时间/当时未知限定逐字保留；
+  历史 implementation、容器或浅 ready 证据不替代当前 exact-SHA 验收。
+
 ### 约束 Agent 资源使用（2026-08-21，本地与 Hosted 完成）
 
 - `bound-agent-resource-use` 已完成本地实现与 implementation Hosted 验证，成为

@@ -382,7 +382,7 @@ def test_tenant_isolation_covers_auth_owner_and_no_double_write(
         if url.endswith("/api/query"):
             return 401, {"detail": "invalid"}
         if url.endswith("/threads/search") and token is None:
-            return 403, {"detail": "invalid"}
+            return 401, {"detail": "invalid"}
         if url.endswith("/api/files"):
             return 200, [{"file_id": file_ids[token]}]
         if "/api/files/file-a" in url and token == "token-b":

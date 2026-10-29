@@ -16,7 +16,8 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import (Column, DefaultClause, ForeignKeyConstraint, Integer,
+                        MetaData, String, Table, create_engine, inspect, text)
 from sqlalchemy.exc import IntegrityError
 
 # Imported for side effects: registering all business tables on shared
@@ -365,3 +366,139 @@ def test_no_drift_between_metadata_and_migrations(sqlite_url):
     # SQLite for this baseline (no server_default/type noise), so any entry
     # here signals a real drift between the ORM models and the migration.
     assert diff == []
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "extra_table", "missing_table", "missing_users", "wrong_type",
+        "nullable_password", "unexpected_default", "missing_unique_index",
+        "missing_foreign_key", "extra_column", "unexpected_view",
+        "unexpected_trigger",
+    ],
+)
+def test_unknown_unversioned_schema_is_rejected_before_any_ddl(
+    sqlite_url, tmp_path, monkeypatch, variant,
+):
+    command.upgrade(database._alembic_config(), "4e43e097f22b")
+    source = create_engine(sqlite_url)
+    metadata = MetaData()
+    metadata.reflect(source)
+    metadata.remove(metadata.tables["alembic_version"])
+    source.dispose()
+    if variant == "extra_table":
+        Table("unrecognized", metadata, Column("id", Integer, primary_key=True))
+    elif variant == "missing_table":
+        metadata.remove(metadata.tables["messages"])
+    elif variant == "missing_users":
+        # An arbitrary nonempty database without users must not be mistaken
+        # for a brand-new database.
+        metadata = MetaData()
+        Table("unrecognized", metadata, Column("id", Integer, primary_key=True))
+    elif variant == "wrong_type":
+        metadata.tables["users"].c.username.type = String(51)
+    elif variant == "nullable_password":
+        metadata.tables["users"].c.hashed_password.nullable = True
+    elif variant == "unexpected_default":
+        metadata.tables["users"].c.hashed_password.server_default = DefaultClause("x")
+    elif variant == "missing_unique_index":
+        users = metadata.tables["users"]
+        users.indexes = {
+            index for index in users.indexes
+            if tuple(index.columns.keys()) != ("email",)
+        }
+    elif variant == "missing_foreign_key":
+        messages = metadata.tables["messages"]
+        messages.constraints = {
+            c for c in messages.constraints if not isinstance(c, ForeignKeyConstraint)
+        }
+    elif variant == "extra_column":
+        metadata.tables["users"].append_column(Column("unrecognized", String(20)))
+    target_url = f"sqlite:///{(tmp_path / 'unknown.db').as_posix()}"
+    engine = create_engine(target_url)
+    metadata.create_all(engine)
+    if variant == "unexpected_view":
+        with engine.begin() as connection:
+            connection.execute(text("CREATE VIEW unexpected AS SELECT id FROM users"))
+    elif variant == "unexpected_trigger":
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TRIGGER unexpected AFTER INSERT ON users "
+                "BEGIN UPDATE users SET email = 'changed@example.test' "
+                "WHERE id = NEW.id; END"
+            ))
+    monkeypatch.setattr(config, "DATABASE_URL", target_url)
+    monkeypatch.setattr(database, "_engine", engine)
+    monkeypatch.setattr(database, "_session_factory", None)
+
+    def snapshot():
+        with engine.connect() as connection:
+            return connection.execute(text(
+                "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+            )).all()
+
+    before = snapshot()
+    try:
+        with pytest.raises(RuntimeError, match="database_schema_unknown"):
+            database._prepare_database()
+        assert snapshot() == before
+        assert "alembic_version" not in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("revision", ["", "unrecognized", "b6f4e8c2a9d1"])
+def test_version_label_does_not_bypass_schema_validation(
+    sqlite_url, monkeypatch, revision,
+):
+    engine = create_engine(sqlite_url)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+        connection.execute(text(
+            "CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
+        ))
+        if revision:
+            connection.execute(
+                text("INSERT INTO alembic_version VALUES (:revision)"),
+                {"revision": revision},
+            )
+    monkeypatch.setattr(database, "_engine", engine)
+    try:
+        before = _schema_snapshot(engine)
+        with pytest.raises(RuntimeError, match="database_schema_unknown"):
+            database._prepare_database()
+        assert _schema_snapshot(engine) == before
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalars().all() == ([revision] if revision else [])
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("revision", ["4e43e097f22b", "8f3c1b7a2d4e", "head"])
+def test_known_versioned_schema_can_initialize_without_losing_data(
+    sqlite_url, monkeypatch, revision,
+):
+    command.upgrade(database._alembic_config(), revision)
+    engine = create_engine(sqlite_url)
+    monkeypatch.setattr(database, "_engine", engine)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users (id, username, email, hashed_password) "
+                "VALUES (1, 'canary', 'canary@example.test', 'offline-hash')"
+            ))
+        database._prepare_database()
+        database.run_migrations()
+        with engine.connect() as connection:
+            assert connection.execute(text(
+                "SELECT username, email, hashed_password, role FROM users"
+            )).all() == [
+                ("canary", "canary@example.test", "offline-hash", "user"),
+            ]
+            assert connection.execute(text(
+                "SELECT version_num FROM alembic_version"
+            )).scalars().all() == ["b6f4e8c2a9d1"]
+    finally:
+        engine.dispose()
