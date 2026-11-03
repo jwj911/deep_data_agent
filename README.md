@@ -620,8 +620,9 @@ git status --short
 
 ### 2026-11-02 聊天接入验证
 
-当前为 `main @ 0aca6ee` 叠加统计后端与聊天接入的未提交工作树。以下引用已有
-实际执行证据，本次文档同步不重跑测试；前轮后端 813 项保留在
+验收基线为 `main @ 0aca6ee` 叠加统计后端与聊天接入；两轮实现已于
+2026-11-03 合并记录为提交 `3d0fe2b` 并推送至 `origin/main`。以下引用已有
+实际执行证据，本次推送与文档同步不重跑测试；前轮后端 813 项保留在
 [后端首轮验收](.trae/specs/deliver-controlled-analysis-slice/validation.md)。
 
 | 证据归属 | 已取得结果与边界 |
@@ -632,7 +633,7 @@ git status --short
 
 最终证据和本机验收完成状态汇总于
 [本轮验收汇总](.trae/specs/integrate-controlled-analysis-chat/validation.md)，
-新工作树未提交、未推送、未部署；
+实现提交与远端 SHA 已核对一致，未部署；新提交的 Hosted 结果尚未核验，
 旧 HEAD 的 Hosted 成功不覆盖新增代码。真实模型效果、生产运行时和自动异地
 备份仍是独立门禁，生产持久业务保持 **NO-GO**。
 

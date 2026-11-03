@@ -3,6 +3,12 @@
 2026-10-29；本轮代码基于 `main @ 0aca6ee2c9adf1aabeff85b0f028fae6d185612f`，
 修改保留在工作树，未提交、推送或部署。
 
+**归档更新（2026-11-03）**：本轮后端切片与后续聊天接入已一并提交为
+`3d0fe2b4e35d66bb96ec0aca2a6b6db4a8eac34c` 并推送 `origin/main`，
+远端 SHA 已核对。下文为原始验收记录；后续完整 958 项、前端和浏览器证据见
+[聊天接入验收](../integrate-controlled-analysis-chat/validation.md)。
+本次不重跑功能测试、不部署，新 SHA Hosted 尚未核验。
+
 ## 项目到了哪一步
 
 基础可运行闭环、第一方认证/owner 隔离、Agent 合计预算、依赖锁、

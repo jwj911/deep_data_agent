@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### 已完成迭代归档与远端同步（2026-11-03）
+
+- 将 `deliver-controlled-analysis-slice` 与 `integrate-controlled-analysis-chat`
+  的实现、回归测试、规格、任务、验收和路线图一并提交为
+  `3d0fe2b4e35d66bb96ec0aca2a6b6db4a8eac34c`，共 46 个文件，
+  已推送 `origin/main` 并以 `git ls-remote` 确认远端一致。
+- 本机证据保留原执行归属：后端首轮 813 项、聊天接入后全量 958 项；
+  前端 120 项及四门禁；最终浏览器 8 回合、7 次下载。
+  以下“未提交/未推送”为验收当时状态，由本条更新。
+- 本次仅归档与推送，不重复运行功能测试、不部署；新 SHA 的 Hosted
+  结果尚未核验，生产 NO-GO 保持。运行日志未纳入提交。
+
 ### 聊天接入完整文件统计（2026-11-02）
 
 - 新增 `analyze_file_statistics`，明确文件和列后复用完整 CSV/JSON 的 `sum`；

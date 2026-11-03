@@ -12,8 +12,25 @@
 通过**；独立缓存与完整 worker 生命周期复核通过。最终冻结代码的浏览器验收
 通过，8 个真实聊天回合、6 次统计成功、7 次真实下载。本轮本机验收完成。
 
-实现与测试未提交、未推送、未部署。生产持久业务仍为 **NO-GO**；
+验收当时实现与测试未提交；2026-11-03 已按下节归档并推送，未部署。
+生产持久业务仍为 **NO-GO**；
 本轮没有真实模型效果、费用、生产运行时或自动异地备份证据。
+
+## 归档与推送（2026-11-03）
+
+| 项目 | 实际记录 |
+| --- | --- |
+| 覆盖迭代 | `deliver-controlled-analysis-slice`、`integrate-controlled-analysis-chat` |
+| 实现提交 | `3d0fe2b4e35d66bb96ec0aca2a6b6db4a8eac34c` |
+| 内容 | 两轮代码、测试、规格与验证，README、CHANGELOG、roadmap，共 46 文件 |
+| 远端 | `origin`：`https://github.com/jwj911/deep_data_agent.git`，分支 `main` |
+| 推送核验 | `git push origin main` 成功；`git ls-remote --heads origin main` 返回与实现提交相同的完整 SHA |
+| 本次验证 | staged 差异/空白及凭据模式检查；复用上述已完成的本机验收，未重跑功能测试 |
+| 仍未验证 | 新 SHA Hosted、容器部署、真实模型效果及生产门禁 |
+
+推送命令执行标识 `55693668b31fadfe8a7ffce7feb761cc`，exit 0；
+既有运行日志 `deep_data_agent.log.1` 留在本地，未进入提交。
+本节记录已确认的实现推送；其后仅补充本文档回执，不把文档提交当作新的功能测试。
 
 ## 实现合同
 
