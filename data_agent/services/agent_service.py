@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import aclosing, closing
 from contextvars import copy_context
@@ -22,7 +23,7 @@ from langchain.agents.middleware.model_call_limit import \
     ModelCallLimitExceededError
 from langchain.agents.middleware.tool_call_limit import \
     ToolCallLimitExceededError
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
@@ -38,7 +39,8 @@ from data_agent.services.agent_budget import (AGENT_MODEL_BUDGET_EXCEEDED,
                                               AgentToolBudgetExceededError,
                                               AggregateToolBudgetMiddleware,
                                               budget_http_clients,
-                                              hold_run_budget)
+                                              hold_run_budget,
+                                              observe_answer_cache)
 from data_agent.services.agent_lease import (AGENT_BUSY,
                                              AGENT_PROTECTION_UNAVAILABLE,
                                              AgentBusyError,
@@ -53,6 +55,11 @@ from data_agent.services.cache_service import global_cache_service
 from data_agent.tools.tool_manager import global_tool_manager
 
 _TOOL_POLICY_VERSION = "4"
+_ANSWER_CACHE_NAMESPACE = "agent:zero-tool-v1:"
+_UUID_REFERENCE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 _SERVER_CONFIG = config
 AGENT_CANCELLED = "agent_cancelled"
 AGENT_INVALID_QUERY = "agent_invalid_query"
@@ -71,6 +78,22 @@ _CLIENT_BUDGET_KEYS = frozenset(
 )
 _CLIENT_IDENTITY_KEYS = frozenset({"langgraph_auth_user_id"})
 
+_FILE_ANALYSIS_INSTRUCTIONS = """
+## `analyze_document`
+Use this for a text preview of an attached managed file. Provide only the file
+UUID from a `__managed_file_v1__` reference; never provide a server or local path.
+
+## `analyze_file_statistics`
+Use this for an exact sum of an explicitly selected column over the complete
+current CSV/JSON file. Supply only its canonical file_id and exact column name.
+The metric is always sum. Do not calculate full-file statistics from a preview,
+model reasoning, or search. Preserve the service's exact decimal strings.
+If the file or column is unclear, or multiple attachments make the selection
+ambiguous, ask the user to clarify before calling the tool. Never default to
+the first file or first column. A failed tool result is not a numeric result;
+do not fall back to preview-based calculation or invent a successful result.
+"""
+
 _BASE_RESEARCH_INSTRUCTIONS = """You are an expert researcher. Your job is to conduct thorough research and then write a polished report.
 
 You have access to the following tools:
@@ -80,11 +103,7 @@ Use this for bounded general or news searches. Queries may contain at most
 2,000 characters and return at most 5 results. Raw page content and media
 search are unavailable.
 
-## `analyze_document`
-Use this to analyze an attached managed text file. Provide only the file UUID
-from a `__managed_file_v1__` reference in the user message; never provide a
-server or local path.
-
+""" + _FILE_ANALYSIS_INSTRUCTIONS + """
 Finally, translate the answer to Chinese.
 """
 
@@ -238,6 +257,15 @@ class ResourceBoundedAgentGraph(CompiledStateGraph):
                         _SERVER_CONFIG.AGENT_TOOL_CALL_LIMIT,
                     ) as budget,
                 ):
+                    # Static interrupts can exhaust the stream without an
+                    # __interrupt__ result, while graph work remains pending.
+                    if (
+                        self.interrupt_before_nodes
+                        or self.interrupt_after_nodes
+                        or kwargs.get("interrupt_before")
+                        or kwargs.get("interrupt_after")
+                    ):
+                        budget.invalidate_cache()
                     with closing(
                         super(ResourceBoundedAgentGraph, self).stream(
                             input, bounded, **kwargs,
@@ -287,6 +315,13 @@ class ResourceBoundedAgentGraph(CompiledStateGraph):
                             _SERVER_CONFIG.AGENT_MODEL_CALL_LIMIT,
                             _SERVER_CONFIG.AGENT_TOOL_CALL_LIMIT,
                         ) as budget:
+                            if (
+                                self.interrupt_before_nodes
+                                or self.interrupt_after_nodes
+                                or kwargs.get("interrupt_before")
+                                or kwargs.get("interrupt_after")
+                            ):
+                                budget.invalidate_cache()
                             async with aclosing(
                                 super(ResourceBoundedAgentGraph, self).astream(
                                     input, bounded, **kwargs,
@@ -369,9 +404,29 @@ def _generate_cache_key(query: str, actor_id: int) -> str:
             f"query:{query}",
         )
     )
-    return "agent:" + hashlib.sha256(
+    return _ANSWER_CACHE_NAMESPACE + hashlib.sha256(
         material.encode("utf-8")
     ).hexdigest()
+
+
+def _has_managed_file_reference(query: str) -> bool:
+    # Bare canonical UUIDs may be file IDs. False positives only lose caching.
+    return "__managed_file_v1__" in query or bool(_UUID_REFERENCE.search(query))
+
+
+def _complete_answer(result: Any) -> bool:
+    if not isinstance(result, Mapping) or "__interrupt__" in result:
+        return False
+    messages = result.get("messages")
+    if not isinstance(messages, (list, tuple)) or not messages:
+        return False
+    final = messages[-1]
+    return (
+        isinstance(final, AIMessage)
+        and final.response_metadata.get("finish_reason") == "stop"
+        and not final.tool_calls
+        and not final.invalid_tool_calls
+    )
 
 
 class RecursionBoundedSubAgentGraph(CompiledStateGraph):
@@ -396,6 +451,10 @@ def _general_purpose_subagent(model, tools, backend):
     graph = create_sub_agent(
         {
             **GENERAL_PURPOSE_SUBAGENT,
+            "system_prompt": (
+                GENERAL_PURPOSE_SUBAGENT["system_prompt"]
+                + _FILE_ANALYSIS_INSTRUCTIONS
+            ),
             "model": model,
             "tools": tools,
             "middleware": [
@@ -546,6 +605,7 @@ class AgentService:
                 outcome="started",
             )
             cache_key = _generate_cache_key(query, actor_id)
+            bypass_cache = _has_managed_file_reference(query)
 
             try:
                 async with asyncio.timeout(
@@ -554,8 +614,9 @@ class AgentService:
                     async with self._lease_manager.hold_async(
                         str(actor_id)
                     ):
-                        cached_result = await global_cache_service.aget(
-                            cache_key
+                        cached_result = (
+                            None if bypass_cache
+                            else await global_cache_service.aget(cache_key)
                         )
                         if cached_result is not None:
                             response = self._validate_response_text(
@@ -563,29 +624,35 @@ class AgentService:
                             )
                             cache_status = "hit"
                         else:
-                            result = await self._get_agent().ainvoke(
-                                {
-                                    "messages": [
-                                        HumanMessage(content=query)
-                                    ]
-                                },
-                                config=_bounded_run_config(
+                            with observe_answer_cache() as observation:
+                                result = await self._get_agent().ainvoke(
                                     {
-                                        "configurable": {
-                                            "request_id": bound_request_id,
-                                        },
-                                        "metadata": {
-                                            "request_id": bound_request_id,
-                                        },
+                                        "messages": [
+                                            HumanMessage(content=query)
+                                        ]
                                     },
-                                ),
-                            )
+                                    config=_bounded_run_config(
+                                        {
+                                            "configurable": {
+                                                "request_id": bound_request_id,
+                                            },
+                                            "metadata": {
+                                                "request_id": bound_request_id,
+                                            },
+                                        },
+                                    ),
+                                )
                             response = self._response_text(result)
-                            await global_cache_service.aset(
-                                cache_key,
-                                response,
-                                expire=86400,
-                            )
+                            if (
+                                not bypass_cache
+                                and observation.allows_cache()
+                                and _complete_answer(result)
+                            ):
+                                await global_cache_service.aset(
+                                    cache_key,
+                                    response,
+                                    expire=86400,
+                                )
                             cache_status = "miss"
                 emit_event(
                     agent_logger,

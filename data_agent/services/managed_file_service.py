@@ -23,6 +23,9 @@ from data_agent.models.user import User, utc_now
 from data_agent.observability.events import emit_event
 from data_agent.services.authorization_service import (
     AuthorizationDeniedError, Permission, ensure_permission)
+from data_agent.services.file_statistics import (MAX_BYTES, StatisticsError,
+                                                 attach_source,
+                                                 calculate_statistics)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _READ_CHUNK_BYTES = 64 * 1024
@@ -579,6 +582,32 @@ class ManagedFileService:
         ):
             raise ManagedFileError("file_storage_invalid", 503)
         return content
+
+    def file_statistics(
+        self,
+        db: Session,
+        actor: User,
+        file_id: str,
+        column: str,
+    ) -> dict[str, object] | None:
+        """Compute from current verified bytes, never from preview or cache."""
+        ensure_permission(actor, Permission.FILE_READ_OWN)
+        record = self.get_file(db, actor, file_id)
+        if record is None:
+            return None
+        if record.size_bytes > MAX_BYTES:
+            raise ManagedFileError("analysis_table_limit", 413)
+        content = self._read_bytes(record)
+        try:
+            result = calculate_statistics(content, record.media_type, column)
+        except StatisticsError as exc:
+            raise ManagedFileError(exc.code, exc.status_code) from exc
+        return attach_source(
+            result,
+            file_id=record.file_id,
+            sha256=record.sha256,
+            size_bytes=record.size_bytes,
+        )
 
     def analyze_file(
         self,

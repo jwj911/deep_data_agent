@@ -2,8 +2,9 @@ from datetime import datetime
 
 from fastapi import (APIRouter, Depends, File, HTTPException, Response,
                      UploadFile, status)
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+from starlette.responses import JSONResponse
 
 from data_agent.config.database import get_db
 from data_agent.models.managed_file import ManagedFile
@@ -33,6 +34,12 @@ class ManagedFileAnalysisResponse(ManagedFileResponse):
     content_truncated: bool
 
 
+class FileStatisticsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    column: str = Field(min_length=1, max_length=128)
+
+
 def _file_error(exc: ManagedFileError) -> HTTPException:
     messages = {
         "invalid_file_id": "Invalid file ID",
@@ -48,6 +55,18 @@ def _file_error(exc: ManagedFileError) -> HTTPException:
         "file_storage_invalid": "Managed file is unavailable",
         "file_storage_unavailable": "Managed file storage is unavailable",
         "file_database_error": "Managed file metadata is unavailable",
+        "analysis_unsupported_type": "Statistics require a CSV or JSON table",
+        "analysis_invalid_table": "A nonempty rectangular table is required",
+        "analysis_invalid_columns": "Column names must be nonempty and unique",
+        "analysis_duplicate_key": "Duplicate JSON keys are not allowed",
+        "analysis_non_finite": "Non-finite numbers are not allowed",
+        "analysis_invalid_column": "Invalid statistics column",
+        "analysis_column_not_found": "Statistics column not found",
+        "analysis_non_numeric": "Selected column contains a non-numeric value",
+        "analysis_numeric_range": "Number exceeds supported decimal precision",
+        "analysis_no_numeric_values": "Selected column contains only missing values",
+        "analysis_table_limit": "Table exceeds the statistics limit",
+        "analysis_timeout": "Statistics calculation exceeded its time limit",
     }
     return HTTPException(
         status_code=exc.status_code,
@@ -143,6 +162,33 @@ async def analyze_file(
         content=str(result["content"]),
         content_truncated=bool(result["content_truncated"]),
     )
+
+
+@router.post("/{file_id}/statistics")
+def file_statistics(
+    file_id: str,
+    request: FileStatisticsRequest,
+    download: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(Permission.FILE_READ_OWN)
+    ),
+):
+    """Sum a complete owned table; run bounded CPU work in the worker pool."""
+    try:
+        result = global_managed_file_service.file_statistics(
+            db, current_user, file_id, request.column,
+        )
+    except ManagedFileError as exc:
+        raise _file_error(exc) from exc
+    if result is None:
+        raise _not_found()
+    headers = {"Cache-Control": "no-store"}
+    if download:
+        headers["Content-Disposition"] = (
+            f'attachment; filename="analysis-{result["source"]["file_id"]}.json"'
+        )
+    return JSONResponse(content=result, headers=headers)
 
 
 @router.get("/{file_id}", response_model=ManagedFileResponse)

@@ -9,8 +9,8 @@ import { Checkpoint, Message } from "@langchain/langgraph-sdk";
 import { AssistantMessage, AssistantMessageLoading } from "./messages/ai";
 import { HumanMessage } from "./messages/human";
 import {
-  DO_NOT_RENDER_ID_PREFIX,
   ensureToolCallsHaveResponses,
+  MissingToolCallIdError,
 } from "@/lib/ensure-tool-responses";
 import { Logo } from "../icons/logo";
 import { TooltipIconButton } from "./tooltip-icon-button";
@@ -44,6 +44,7 @@ import { SessionControls } from "@/components/auth-session";
 import { createRunCorrelation } from "@/lib/request-id";
 import { MANAGED_FILE_ACCEPT } from "@/lib/managed-file-client";
 import { createManagedFileContentBlock } from "@/lib/managed-file-reference";
+import { buildMessageViews } from "@/lib/statistics-messages";
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -202,6 +203,14 @@ export function Thread() {
       uploading
     )
       return;
+    let toolMessages: Message[];
+    try {
+      toolMessages = ensureToolCallsHaveResponses(stream.messages);
+    } catch (error) {
+      if (!(error instanceof MissingToolCallIdError)) throw error;
+      toast.error(error.message);
+      return;
+    }
     setFirstTokenReceived(false);
 
     const newHumanMessage: Message = {
@@ -212,8 +221,6 @@ export function Thread() {
         ...contentBlocks.map(createManagedFileContentBlock),
       ] as Message["content"],
     };
-
-    const toolMessages = ensureToolCallsHaveResponses(stream.messages);
 
     const context =
       Object.keys(artifactContext).length > 0 ? artifactContext : undefined;
@@ -411,24 +418,24 @@ export function Thread() {
               contentClassName="pt-8 pb-16 max-w-3xl mx-auto flex flex-col gap-4 w-full"
               content={
                 <>
-                  {messages
-                    .filter((m) => !m.id?.startsWith(DO_NOT_RENDER_ID_PREFIX))
-                    .map((message, index) =>
+                  {buildMessageViews(messages).map(
+                    ({ message, key, statistics }) =>
                       message.type === "human" ? (
                         <HumanMessage
-                          key={message.id || `${message.type}-${index}`}
+                          key={`${threadId ?? "new"}:${key}`}
                           message={message}
                           isLoading={isLoading}
                         />
                       ) : (
                         <AssistantMessage
-                          key={message.id || `${message.type}-${index}`}
+                          key={`${threadId ?? "new"}:${key}`}
                           message={message}
+                          statistics={statistics}
                           isLoading={isLoading}
                           handleRegenerate={handleRegenerate}
                         />
                       ),
-                    )}
+                  )}
                   {/* Special rendering case where there are no AI/tool messages, but there is an interrupt.
                     We need to render it outside of the messages list, since there are no messages to render */}
                   {hasNoAIOrToolMessages && !!stream.interrupt && (

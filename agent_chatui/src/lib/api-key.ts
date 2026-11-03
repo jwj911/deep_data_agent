@@ -1,5 +1,6 @@
 const LEGACY_API_KEY_STORAGE_KEY = "lg:chat:apiKey";
 const AUTH_TOKEN_STORAGE_KEY = "auth_token";
+export const AUTH_TOKEN_CHANGED_EVENT = "auth:token-changed";
 
 export function getAuthToken(): string | null {
   try {
@@ -20,12 +21,14 @@ export function setAuthToken(authToken: string): void {
   }
 
   window.sessionStorage.setItem(AUTH_TOKEN_STORAGE_KEY, value);
+  window.dispatchEvent(new Event(AUTH_TOKEN_CHANGED_EVENT));
 }
 
 export function clearAuthToken(): void {
   try {
     if (typeof window === "undefined") return;
     window.sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    window.dispatchEvent(new Event(AUTH_TOKEN_CHANGED_EVENT));
   } catch {
     // Storage can be unavailable in restricted browser contexts.
   }

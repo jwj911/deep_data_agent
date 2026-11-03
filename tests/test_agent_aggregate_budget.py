@@ -85,29 +85,7 @@ class _Provider:
                 500, json={"error": {"message": "offline retry control"}},
                 headers={"retry-after-ms": "1"},
             )
-        messages = payload["messages"]
-        user = next(m["content"] for m in messages if m["role"] == "user")
-        tool_results = sum(m["role"] == "tool" for m in messages)
-        calls = []
-        if self.scenario not in {"retry", "summary"}:
-            if user.startswith("parent") and not tool_results:
-                count = 2 if self.scenario == "parallel" else 1
-                calls = [
-                    _tool("task", i, {
-                        "subagent_type": "general-purpose",
-                        "description": f"child-{i}",
-                    })
-                    for i in range(count)
-                ]
-            elif user.startswith("child"):
-                if self.scenario == "tool" and not tool_results:
-                    calls = [
-                        _tool("ls", i, {"path": "/"}) for i in range(19)
-                    ]
-                elif self.scenario in {"model", "parallel", "recursion"}:
-                    steps = {"model": 7, "parallel": 3, "recursion": 30}
-                    if tool_results < steps[self.scenario]:
-                        calls = [_tool("ls", tool_results, {"path": "/"})]
+        calls = self._calls(payload)
         message = {"role": "assistant", "content": "offline result"}
         if calls:
             message.update(content="", tool_calls=calls)
@@ -141,6 +119,32 @@ class _Provider:
                 headers={"content-type": "text/event-stream"},
             )
         return httpx.Response(200, json=completion)
+
+    def _calls(self, payload):
+        messages = payload["messages"]
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        tool_results = sum(m["role"] == "tool" for m in messages)
+        calls = []
+        if self.scenario not in {"retry", "summary"}:
+            if user.startswith("parent") and not tool_results:
+                count = 2 if self.scenario == "parallel" else 1
+                calls = [
+                    _tool("task", i, {
+                        "subagent_type": "general-purpose",
+                        "description": f"child-{i}",
+                    })
+                    for i in range(count)
+                ]
+            elif user.startswith("child"):
+                if self.scenario == "tool" and not tool_results:
+                    calls = [
+                        _tool("ls", i, {"path": "/"}) for i in range(19)
+                    ]
+                elif self.scenario in {"model", "parallel", "recursion"}:
+                    steps = {"model": 7, "parallel": 3, "recursion": 30}
+                    if tool_results < steps[self.scenario]:
+                        calls = [_tool("ls", tool_results, {"path": "/"})]
+        return calls
 
 
 @pytest.fixture

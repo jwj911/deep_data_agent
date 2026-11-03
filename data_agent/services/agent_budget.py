@@ -7,6 +7,7 @@ from typing import Iterator
 
 import httpx
 from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
+from langchain_core.messages import AIMessage
 
 from data_agent.config.logger import agent_logger
 from data_agent.observability.events import emit_event
@@ -38,7 +39,42 @@ class RunBudget:
         self.model_requests = 0
         self.tool_calls = 0
         self._failure: str | None = None
+        self._model_observed = False
+        self._cache_safe = True
+        self._completed = False
         self._lock = Lock()
+
+    def observe_model_result(self, response) -> None:
+        # A tool request is also a veto when validation prevents dispatch.
+        messages = getattr(response, "result", None)
+        complete = isinstance(messages, (list, tuple)) and bool(messages) and all(
+            isinstance(message, AIMessage)
+            and message.response_metadata.get("finish_reason") == "stop"
+            and not message.tool_calls
+            and not message.invalid_tool_calls
+            for message in messages
+        )
+        with self._lock:
+            self._model_observed = True
+            self._cache_safe &= complete
+
+    def invalidate_cache(self) -> None:
+        with self._lock:
+            self._cache_safe = False
+
+    def _finish(self, success: bool) -> None:
+        with self._lock:
+            self._completed = success
+
+    def allows_answer_cache(self) -> bool:
+        with self._lock:
+            return (
+                self._completed
+                and self._model_observed
+                and self._cache_safe
+                and self._failure is None
+                and self.tool_calls == 0
+            )
 
     def _check_locked(self) -> None:
         # Fresh exceptions avoid sharing/retaining tracebacks across branches.
@@ -74,6 +110,41 @@ _active_budget: ContextVar[RunBudget | None] = ContextVar(
 )
 
 
+class _AnswerCacheObservation:
+    """Collect graph-owned ledgers, never client config or result claims."""
+
+    def __init__(self) -> None:
+        self._budgets: list[RunBudget] = []
+        self._lock = Lock()
+
+    def include(self, budget: RunBudget) -> None:
+        with self._lock:
+            self._budgets.append(budget)
+
+    def allows_cache(self) -> bool:
+        with self._lock:
+            return bool(self._budgets) and all(
+                budget.allows_answer_cache() for budget in self._budgets
+            )
+
+
+_answer_cache_observation: ContextVar[_AnswerCacheObservation | None] = ContextVar(
+    "agent_answer_cache_observation", default=None
+)
+
+
+@contextmanager
+def observe_answer_cache() -> Iterator[_AnswerCacheObservation]:
+    # The mutable collector follows copied Contexts into the graph's owned
+    # Task and workers; child scopes cannot overwrite a parent's evidence.
+    observation = _AnswerCacheObservation()
+    token = _answer_cache_observation.set(observation)
+    try:
+        yield observation
+    finally:
+        _answer_cache_observation.reset(token)
+
+
 def active_run_budget() -> RunBudget:
     budget = _active_budget.get()
     if budget is None:
@@ -86,6 +157,9 @@ def active_run_budget() -> RunBudget:
 @contextmanager
 def hold_run_budget(model_limit: int, tool_limit: int) -> Iterator[RunBudget]:
     budget = RunBudget(model_limit, tool_limit)
+    observation = _answer_cache_observation.get()
+    if observation is not None:
+        observation.include(budget)
     token = _active_budget.set(budget)
     outcome = "error"
     try:
@@ -99,6 +173,7 @@ def hold_run_budget(model_limit: int, tool_limit: int) -> Iterator[RunBudget]:
         budget.check()
         outcome = "success"
     finally:
+        budget._finish(outcome == "success")
         _active_budget.reset(token)
         emit_event(
             agent_logger,
@@ -140,6 +215,26 @@ def budget_http_clients(
 
 class AggregateToolBudgetMiddleware(AgentMiddleware):
     """Count every tool, including injected built-ins and the parent task."""
+
+    def wrap_model_call(self, request, handler):
+        budget = active_run_budget()
+        try:
+            response = handler(request)
+        except BaseException:
+            budget.invalidate_cache()
+            raise
+        budget.observe_model_result(response)
+        return response
+
+    async def awrap_model_call(self, request, handler):
+        budget = active_run_budget()
+        try:
+            response = await handler(request)
+        except BaseException:
+            budget.invalidate_cache()
+            raise
+        budget.observe_model_result(response)
+        return response
 
     def wrap_tool_call(self, request: ToolCallRequest, handler):
         active_run_budget().reserve("tool")

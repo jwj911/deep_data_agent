@@ -2,6 +2,11 @@ import { REST_API_URL } from "@/config";
 import { AUTH_UNAUTHORIZED_EVENT, isRestApiUrl } from "@/lib/auth-client";
 import { clearAuthToken, getAuthToken } from "@/lib/api-key";
 import { createRequestId, REQUEST_ID_HEADER } from "@/lib/request-id";
+import {
+  parseStatisticsData,
+  sameStatisticsData,
+  type StatisticsData,
+} from "@/lib/statistics-result";
 
 export const FILE_MAX_COUNT = 5;
 export const FILE_MAX_BYTES = 5 * 1024 * 1024;
@@ -79,6 +84,9 @@ async function createError(response: Response): Promise<ManagedFileApiError> {
 }
 
 async function request(path: string, init: RequestInit): Promise<Response> {
+  if (init.signal?.aborted) {
+    throw new DOMException("Request aborted", "AbortError");
+  }
   const url = buildFileUrl(path);
   if (!isRestApiUrl(url)) {
     throw new ManagedFileApiError(
@@ -95,13 +103,22 @@ async function request(path: string, init: RequestInit): Promise<Response> {
 
   let response: Response;
   try {
-    response = await fetch(url, { ...init, headers });
-  } catch {
+    response = await fetch(url, { ...init, headers, redirect: "error" });
+  } catch (error) {
+    if (
+      init.signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new DOMException("Request aborted", "AbortError");
+    }
     throw new ManagedFileApiError(
       0,
       "network_error",
       "Managed file service is unreachable",
     );
+  }
+  if (init.signal?.aborted || token !== getAuthToken()) {
+    throw new DOMException("Request superseded", "AbortError");
   }
   if (response.status === 401 && isRestApiUrl(url)) notifyUnauthorized();
   if (!response.ok) throw await createError(response);
@@ -158,6 +175,79 @@ export async function uploadManagedFiles(
 
 export async function deleteManagedFile(fileId: string): Promise<void> {
   await request(`/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+}
+
+export async function fetchFileStatistics(
+  snapshot: StatisticsData,
+  signal: AbortSignal,
+): Promise<StatisticsData> {
+  const expected = parseStatisticsData(snapshot);
+  if (!expected) {
+    throw new ManagedFileApiError(
+      0,
+      "invalid_response",
+      "Invalid statistics snapshot",
+    );
+  }
+  const token = getAuthToken();
+  const response = await request(
+    `/${expected.source.file_id}/statistics?download=true`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ column: expected.parameters.column }),
+      signal,
+      cache: "no-store",
+    },
+  );
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    if (
+      signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new DOMException("Request aborted", "AbortError");
+    }
+    throw new ManagedFileApiError(
+      502,
+      "invalid_response",
+      "Invalid statistics response",
+    );
+  }
+  if (signal.aborted || token !== getAuthToken()) {
+    throw new DOMException("Request superseded", "AbortError");
+  }
+  // Unknown future versions are changes, never a reason to fall back to old data.
+  if (
+    isRecord(payload) &&
+    ((typeof payload.analysis_version === "string" &&
+      payload.analysis_version !== expected.analysis_version) ||
+      (typeof payload.parser_version === "string" &&
+        payload.parser_version !== expected.parser_version))
+  ) {
+    throw new ManagedFileApiError(
+      409,
+      "statistics_changed",
+      "Statistics changed",
+    );
+  }
+  const data = parseStatisticsData(payload);
+  if (!data)
+    throw new ManagedFileApiError(
+      502,
+      "invalid_response",
+      "Invalid statistics response",
+    );
+  if (!sameStatisticsData(expected, data)) {
+    throw new ManagedFileApiError(
+      409,
+      "statistics_changed",
+      "Statistics changed",
+    );
+  }
+  return data;
 }
 
 export function validateManagedFileSelection(

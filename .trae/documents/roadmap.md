@@ -1,5 +1,52 @@
 # Deep Data Agent Roadmap
 
+## 当前进度与后续顺序（2026-11-02）
+
+当前基线 `main @ 0aca6ee`；GitHub API 确认 PR #1 已在
+2026-10-29 12:09:23 UTC 合并。合并 SHA 的
+[运行 40870965199](https://github.com/jwj911/deep_data_agent/actions/runs/40870965199)
+四项 Job 均成功，包含真实浏览器和三域恢复。此前 `6748150` 的 Windows/Linux
+763 项完整结果保留原归属。下文的“PR 未合并”、
+“下一步合计预算”等段落保留历史语境，不再作为当前进度。
+
+`deliver-controlled-analysis-slice` 的完整受管 CSV/JSON 列求和、质量/来源及
+同源 JSON 下载已完成本机后端实现，首轮范围和证据见
+[规格](../specs/deliver-controlled-analysis-slice/spec.md)与
+[验证](../specs/deliver-controlled-analysis-slice/validation.md)。
+`integrate-controlled-analysis-chat` 已完成本机聊天接入实现：明确文件/列的
+统计工具、真实结果卡片、计算时快照与当前来源校验下载，保留 8/12 预算和
+有界 4 worker；缺失结果按 ID 补 error，缺 ID 保留输入。REST 仅缓存确认
+零工具的完整成功回答，显式 UUID 绕过读写，unknown/工具/失败/取消不缓存，
+独立搜索缓存与 LangGraph 历史语义不变。
+
+已取得主 Agent [后端回归](../specs/integrate-controlled-analysis-chat/backend-validation.md)
+958 passed（99.04 秒）、worker 补测 10 passed 及 isort/runtime lock/
+唯一迁移 head/release 门禁；
+[独立前端](../specs/integrate-controlled-analysis-chat/frontend-validation.md)
+120 passed 与 Node 22.22.2 / pnpm 10.5.1 四门禁。
+[浏览器最终 full](../specs/integrate-controlled-analysis-chat/browser-validation.md)
+在静止源码上通过：8 回合（2 澄清、6 统计）、7 次真实下载，来源失效及中止负控通过。
+首次失败与早期非静止结果保留，证据边界见
+[本轮验收](../specs/integrate-controlled-analysis-chat/validation.md)。
+
+| 顺序 / 状态 | 原子迭代 | 可验收结果与依赖 |
+| --- | --- | --- |
+| 1，已完成本机实现 | 完整文件确定性统计后端 | owner 文件完整读取、精确 sum、质量/来源/JSON 下载；首轮证据保留 |
+| 2，已完成本机验收 | 聊天工具及当前文件答案合同 | 结果卡片/来源/校验下载和 REST 缓存准入通过本机验证，不重复列入待做 |
+| 3，下一候选，另立规格 | `extend-canonical-analysis-output` | 基于同一 canonical 结果扩展图表与导出，不新增数值计算链；持久派生产物另定义删除/过期/恢复合同 |
+| 可并行准备 | `establish-analysis-evaluation` | 公开任务集、hash 与独立数值参考先行；真实模型效果、延迟和费用须人工授权及准确配置/价格，不能以离线测试代证 |
+| 独立门禁 | 生产运行时与自动异地备份 | 受支持 runtime、异地仓库/调度、独立恢复及 RPO/RTO 分别取得证据，不由聊天实现放行 |
+
+第 2.3 节的后端与聊天首面已有实现，图表/受管报告仍是后续候选；REV-F02 和
+REV-A03/F07 的本轮覆盖不代表全部取消确认、附件编辑或生命周期问题已关闭。
+下文编号章节保留原决策及历史范围，当前顺序以本节为准。
+
+本轮工作树未提交、未推送、未部署，旧 HEAD Hosted 不替代新工作树证据。
+生产持久业务仍为 **NO-GO**；不阻塞隔离、可重建数据上的开发。
+不根据过期磁盘快照推断当前机器空间。
+
+## 历史决策基线
+
 > 当前决策：2026-10-27；固定 BASE：`main @ 3d4ac6dbb540d7f8a46430f3bc311c071d4ba438`。
 > 本轮只交付文档，不实施候选、不改变后续候选的实施状态、不批准生产。历史验收在末节独立保留。
 

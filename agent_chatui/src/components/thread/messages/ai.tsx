@@ -14,6 +14,8 @@ import { ThreadView } from "../agent-inbox";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { GenericInterruptView } from "./generic-interrupt";
 import { useArtifact } from "../use-artifact";
+import { StatisticsCard } from "./statistics-card";
+import type { StatisticsMessageResult } from "@/lib/statistics-result";
 
 function CustomComponent({
   message,
@@ -102,10 +104,12 @@ export function AssistantMessage({
   message,
   isLoading,
   handleRegenerate,
+  statistics,
 }: {
   message: Message | undefined;
   isLoading: boolean;
   handleRegenerate: (parentCheckpoint: Checkpoint | null | undefined) => void;
+  statistics?: StatisticsMessageResult;
 }) {
   const content = message?.content ?? [];
   const contentString = getContentString(content);
@@ -116,7 +120,7 @@ export function AssistantMessage({
 
   const thread = useStreamContext();
   const isLastMessage =
-    thread.messages[thread.messages.length - 1].id === message?.id;
+    thread.messages[thread.messages.length - 1]?.id === message?.id;
   const hasNoAIOrToolMessages = !thread.messages.find(
     (m) => m.type === "ai" || m.type === "tool",
   );
@@ -141,16 +145,17 @@ export function AssistantMessage({
   const hasAnthropicToolCalls = !!anthropicStreamedToolCalls?.length;
   const isToolResult = message?.type === "tool";
 
-  if (isToolResult && hideToolCalls) {
+  if (isToolResult && hideToolCalls && !statistics) {
     return null;
   }
 
   return (
-    <div className="group mr-auto flex w-full items-start gap-2">
-      <div className="flex w-full flex-col gap-2">
+    <div className="group mr-auto flex w-full min-w-0 items-start gap-2">
+      <div className="flex w-full min-w-0 flex-col gap-2">
         {isToolResult ? (
           <>
-            <ToolResult message={message} />
+            {statistics && <StatisticsCard result={statistics} />}
+            {!hideToolCalls && <ToolResult message={message} />}
             <Interrupt
               interrupt={threadInterrupt}
               isLastMessage={isLastMessage}

@@ -5,11 +5,13 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+from test_agent_aggregate_budget import factory
 
 from data_agent import agent_server
 from data_agent.models.user import User, UserRole
 from data_agent.observability import rate_limit_middleware
 from data_agent.services import agent_service
+from data_agent.services.agent_lease import get_active_agent_subject
 from data_agent.services.agent_service import AgentService
 from data_agent.services.auth_service import get_current_user
 from data_agent.services.authorization_service import AuthorizationDeniedError
@@ -90,16 +92,23 @@ def test_service_rejects_missing_or_unknown_actor_before_side_effects(
     graph.ainvoke.assert_not_called()
 
 
-def test_same_query_uses_distinct_tenant_cache_keys(monkeypatch) -> None:
+def test_same_query_uses_distinct_tenant_cache_keys(monkeypatch, factory) -> None:
     cache = _MemoryCache()
-    graph = Mock()
-    graph.ainvoke = AsyncMock(side_effect=[
-        {"messages": [SimpleNamespace(content="answer-a")]},
-        {"messages": [SimpleNamespace(content="answer-b")]},
-    ])
+    graph, provider, lease = factory("summary")
+    original = type(provider).__call__
+
+    def respond(self, request):
+        response = original(self, request)
+        payload = response.json()
+        payload["choices"][0]["message"]["content"] = {
+            "1": "answer-a", "2": "answer-b",
+        }[get_active_agent_subject()]
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(type(provider), "__call__", respond)
     service = AgentService(
         agent=graph,
-        lease_manager=_AllowLeaseManager(),
+        lease_manager=lease,
     )
     monkeypatch.setattr(agent_service, "global_cache_service", cache)
 
@@ -112,21 +121,18 @@ def test_same_query_uses_distinct_tenant_cache_keys(monkeypatch) -> None:
 
     assert answer_a == "answer-a"
     assert answer_b == "answer-b"
-    assert graph.ainvoke.call_count == 2
+    assert len(provider.requests) == 2
     assert len(set(cache.set_keys)) == 2
     assert all(key.startswith("agent:") for key in cache.set_keys)
     assert all("same query" not in key for key in cache.set_keys)
 
 
-def test_same_user_can_reuse_own_cached_result(monkeypatch) -> None:
+def test_same_user_can_reuse_own_cached_result(monkeypatch, factory) -> None:
     cache = _MemoryCache()
-    graph = Mock()
-    graph.ainvoke = AsyncMock(
-        return_value={"messages": [SimpleNamespace(content="answer")]}
-    )
+    graph, provider, lease = factory("summary")
     service = AgentService(
         agent=graph,
-        lease_manager=_AllowLeaseManager(),
+        lease_manager=lease,
     )
     monkeypatch.setattr(agent_service, "global_cache_service", cache)
     actor = _actor(7)
@@ -134,8 +140,8 @@ def test_same_user_can_reuse_own_cached_result(monkeypatch) -> None:
     first = asyncio.run(service.ainvoke("repeat", actor=actor))
     second = asyncio.run(service.ainvoke("repeat", actor=actor))
 
-    assert first == second == "answer"
-    graph.ainvoke.assert_awaited_once()
+    assert first == second == "offline result"
+    assert len(provider.requests) == 1
     assert cache.get_keys[0] == cache.get_keys[1]
 
 

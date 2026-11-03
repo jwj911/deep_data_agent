@@ -13,6 +13,7 @@ from langchain.agents.middleware.tool_call_limit import \
     ToolCallLimitExceededError
 from langgraph.graph import END, START, StateGraph
 from redis.exceptions import ConnectionError as RedisConnectionError
+from test_agent_aggregate_budget import factory
 from typing_extensions import TypedDict
 
 from data_agent import agent_server
@@ -706,22 +707,16 @@ def test_blocking_cache_lookup_cannot_outlive_agent_deadline(
 
 
 def test_blocking_cache_set_is_cancelled_at_agent_deadline(
-    monkeypatch,
+    monkeypatch, factory,
 ) -> None:
     cache = _BlockingCache(block_set=True)
-    graph = SimpleNamespace(
-        ainvoke=AsyncMock(
-            return_value={
-                "messages": [SimpleNamespace(content="answer")]
-            }
-        )
-    )
+    graph, provider, _ = factory("summary")
     client = _FakeLeaseRedis()
     service = AgentService(
         agent=graph,
         lease_manager=_manager(client, _Clock()),
     )
-    monkeypatch.setattr(config, "AGENT_RUN_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(config, "AGENT_RUN_TIMEOUT_SECONDS", 0.5)
     monkeypatch.setattr(agent_service, "global_cache_service", cache)
 
     with pytest.raises(AgentTimeoutError, match=AGENT_TIMEOUT):
@@ -731,25 +726,19 @@ def test_blocking_cache_set_is_cancelled_at_agent_deadline(
     assert cache.set_cancelled is True
     assert cache.set_completed is False
     assert client.active_count == 0
-    graph.ainvoke.assert_awaited_once()
+    assert len(provider.requests) == 1
 
 
 def test_cancellation_during_cache_set_does_not_complete_write(
-    monkeypatch,
+    monkeypatch, factory,
 ) -> None:
+    graph, provider, _ = factory("summary")
+
     async def cancel_during_set() -> tuple[_BlockingCache, _FakeLeaseRedis]:
         cache = _BlockingCache(block_set=True)
         client = _FakeLeaseRedis()
         service = AgentService(
-            agent=SimpleNamespace(
-                ainvoke=AsyncMock(
-                    return_value={
-                        "messages": [
-                            SimpleNamespace(content="answer")
-                        ]
-                    }
-                )
-            ),
+            agent=graph,
             lease_manager=_manager(client, _Clock()),
         )
         monkeypatch.setattr(
@@ -761,7 +750,7 @@ def test_cancellation_during_cache_set_does_not_complete_write(
         task = asyncio.create_task(
             service.ainvoke("cancel cache set", actor=_actor(23))
         )
-        await cache.set_started.wait()
+        await asyncio.wait_for(cache.set_started.wait(), 5)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -772,6 +761,7 @@ def test_cancellation_during_cache_set_does_not_complete_write(
     assert cache.set_cancelled is True
     assert cache.set_completed is False
     assert client.active_count == 0
+    assert len(provider.requests) == 1
 
 
 @pytest.mark.parametrize(

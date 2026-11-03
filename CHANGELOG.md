@@ -5,6 +5,43 @@
 
 ## [Unreleased]
 
+### 聊天接入完整文件统计（2026-11-02）
+
+- 新增 `analyze_file_statistics`，明确文件和列后复用完整 CSV/JSON 的 `sum`；
+  真实 ToolMessage 卡片保留精确字符串、质量、来源及“计算时快照”，不随隐藏工具
+  详情消失。固定 REST/JWT 下载重新校验完整 canonical，失效拒绝但旧卡保留。
+- REST 回答缓存换用零工具命名空间：显式 UUID 绕过读写，仅服务端确认零工具且
+  正常完成才缓存；unknown、任何工具、失败/取消不缓存。独立搜索缓存及
+  LangGraph 历史不变。缺失工具结果按 ID 补 error，缺 ID 阻止续发并保留输入/附件。
+- 保留模型/工具 8/12 预算；统计工具每进程有界 4 worker，实际完成才释放槽位。
+  5 秒仅为解析/遍历检查期限，不承诺抢占同步 I/O。新增 `pnpm test` 与离线
+  `scripts/verify_controlled_analysis_chat.py` 联调入口。
+- [后端实测](.trae/specs/integrate-controlled-analysis-chat/backend-validation.md)
+  958 passed（99.04 秒），worker 补测 10 passed；isort、runtime lock 134、
+  唯一 Alembic head、release contracts 通过。
+  [独立前端](.trae/specs/integrate-controlled-analysis-chat/frontend-validation.md)
+  120 passed，Node 22.22.2 / pnpm 10.5.1 四门禁通过。
+- [浏览器最终联调](.trae/specs/integrate-controlled-analysis-chat/browser-validation.md)
+  静止源码 full 通过：8 回合（2 澄清、6 统计）、7 次下载，来源失效与中止负控通过；
+  首次失败和早期非静止结果保留，最终证据汇入
+  [本轮验收](.trae/specs/integrate-controlled-analysis-chat/validation.md)。
+  本轮未提交、未推送、未部署；旧 HEAD Hosted 不覆盖新工作树，真实模型、
+  生产运行时和自动异地备份另验，生产 NO-GO 保持。
+
+### 完整文件统计后端切片（2026-10-29）
+
+- 新增 `POST /api/files/{file_id}/statistics`，对完整 CSV/JSON 的指定列
+  进行确定性 Decimal 求和，返回行/列质量、缺失、重复、范围及同源解释；
+  `?download=true` 下载相同 JSON，包含来源 SHA、版本和 canonical 结果摘要。
+- 服务和 API 复核当前 owner、有效期、受管字节与 SHA，响应 no-store；
+  无统计缓存或持久派生文件，删除/过期/漂移后的重试重新拒绝。
+- 表结构、数值精度、公式、输入字节、行/列/单元格和计算期限均有显式限制；
+  保留原上传和预览合同，不自动接入模型或改变既有 REST 回答缓存。
+- 恢复修复已于 2026-10-29 合并 PR #1，当前基线为 `main @ 0aca6ee`。
+  本轮新增 API 的验证与下一步范围见
+  [分析切片验收](.trae/specs/deliver-controlled-analysis-slice/validation.md)；
+  历史 Hosted 成功不外推至本轮工作树，生产 NO-GO 保持。
+
 ### 版本化恢复辅助脚本与 Linux 门禁（2026-10-29）
 
 - 恢复传输、准入回归、运行时盘点及模型评测/离线控制脚本纳入 `scripts/`，

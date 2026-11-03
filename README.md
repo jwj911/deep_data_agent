@@ -18,6 +18,74 @@ Agent、工具与缓存使用请求 ID 和结构化脱敏事件形成轻量诊�
 | MySQL | `localhost:3306` | users/RBAC、REST sessions/messages 与受管文件 metadata 持久化 |
 | Redis | `localhost:6379` | 缓存、限流、Agent 并发租约与就绪保护 |
 
+## 完整文件统计（聊天与 API）
+
+已上传的受管 CSV/JSON 可以在聊天或 API 中按列求和，计算覆盖完整文件，
+不受文本预览 20,000 字符限制。唯一数值来源是后端 Decimal 统计服务，
+`analyze_document` 仍只提供预览。
+
+### 在聊天中求和
+
+1. 登录后上传 CSV/JSON，在消息中明确目标文件和原始列名，例如：
+   “对本次上传的 sales.csv 的 amount 列求和。”
+2. `analyze_file_statistics` 只接受受管文件 UUID 和精确列名，指标固定为 `sum`；
+   缺列名或多个附件选择有歧义时应先澄清，不默认选择首列或首文件。
+   主体和当前角色由服务端取得，模型不能指定 owner、路径、表达式或资源限额。
+3. 查看“完整文件统计 · 求和”卡片及来源，按需点击“校验来源并下载 JSON”。
+
+卡片仅来自按 `tool_call_id` 关联并通过协议校验的真实 `ToolMessage`，
+保留精确十进制字符串、总行/有效/缺失/重复数、质量警告和同源固定说明；
+来源可展开查看 UUID、文件/结果 SHA、解析/分析版本与范围。数值不经过
+JavaScript 浮点转换或再次累计，单位显示“未指定”。模型正文、合成补齐、
+失败或无法识别的消息不生成数值成功卡片。“隐藏工具详情”不隐藏业务卡片；
+刷新、切回线程仍按消息身份展示“计算时快照”，不保证来源当前仍有效。
+
+下载使用固定 REST Origin、第一方 JWT 和请求 ID，重新请求统计接口，
+严格验证并比较完整 canonical payload，包括来源、参数、版本、结果和质量字段，
+不只比较 `result_sha256`。一致后才创建受控 UUID 文件名的 JSON 下载；
+不采用模型提供的 URL。删除/过期/漂移均拒绝新下载，版本或结果变化提示重新分析；
+旧卡片和已取得的本地副本保留，不静默替换。请求期间禁止重复点击；
+切线程、登出或卸载会中止请求并丢弃迟到结果，释放请求和 Blob URL。
+
+缺失工具结果按各调用 ID 仅补 `error` 状态和“没有取得工具结果”，保留真实结果，
+不伪造成功或推断用户取消；缺少调用 ID 时阻止续发并保留输入及附件。
+
+### API 与数据边界
+
+使用现有第一方 JWT 调用：
+
+```http
+POST /api/files/{file_id}/statistics
+Authorization: Bearer <first-party-jwt>
+Content-Type: application/json
+
+{"column":"amount"}
+```
+
+追加 `?download=true` 可下载同一 JSON。结果包含完整行数、各列类型和缺失数、
+重复行数、精确十进制和/最小/最大值、固定模板说明、文件 UUID/SHA、
+解析/分析版本及 `result_sha256`。数值以字符串返回；结果 SHA-256 覆盖去掉
+`result_sha256` 后按键排序、紧凑分隔且 ASCII 转义的完整 JSON。
+
+只支持一个明确的 `sum` 指标。CSV 需有唯一非空表头、矩形数据；JSON 需为
+键集合一致的非空对象数组、单元格仅为标量。空字符串/null 为缺失，
+目标列的其他非数值整次拒绝，重复行保留参与求和，单位不推断。
+保留原 CSV 公式拒绝规则；需要负数时使用 JSON。单个输入数值最多 38 位有效数字、
+38 位整数、18 位小数，不自动舍入；支持的具体范围和错误见
+[统计规格](.trae/specs/deliver-controlled-analysis-slice/spec.md)。
+
+上限为 5 MiB（同时受上传限制）、50,000 行、64 列和 250,000 单元格，
+5 秒为解析/遍历检查期限，不承诺强制抢占已进入的同步 I/O 或解析器。
+每次请求重新验证当前 owner、有效期、受管路径、大小和内容 SHA，响应
+`no-store`；统计接口不保存派生文件或成功缓存。
+
+统计工具保留同一 run 合计模型 8 次/工具 12 次预算，执行前扣额，第 13 次工具
+调用不得读取文件。同步读取和计算移出异步事件循环，每进程最多占用 4 个 worker
+槽位，满额拒绝；取消后已运行 worker 仍占槽，实际完成才释放，不形成无界队列。
+取消/超时后不交付新的成功消息或写回答缓存；此前已交付的卡片仅代表那次计算，
+不代表整个 run 成功。合同见[聊天规格](.trae/specs/integrate-controlled-analysis-chat/spec.md)，
+本机证据见[本轮验证](#2026-11-02-聊天接入验证)；同源图表和报告另立规格。
+
 ## 环境准备
 
 - Python 3.12
@@ -121,6 +189,7 @@ FastAPI 只在应用生命周期启动时初始化数据库。导入
 ```powershell
 Set-Location agent_chatui
 pnpm install --frozen-lockfile
+pnpm test
 pnpm typecheck
 pnpm lint
 pnpm format:check
@@ -278,6 +347,8 @@ CSV 中去除前导空白后以 `=`, `+`, `-`, `@` 开头的单元格会被整�
 - `GET /api/files`：列出当前用户未过期文件。
 - `GET /api/files/{file_id}`：读取安全 metadata。
 - `GET /api/files/{file_id}/analysis`：读取有界文本分析。
+- `POST /api/files/{file_id}/statistics`：完整 CSV/JSON 指定列求和；
+  `?download=true` 下载同一 JSON，见[完整文件统计](#完整文件统计聊天与-api)。
 - `DELETE /api/files/{file_id}`：删除当前用户文件。
 
 相关配置包括 `FILE_STORAGE_ROOT`、`FILE_UPLOAD_MAX_BYTES`、
@@ -478,13 +549,24 @@ Redis/TCP 预算和 MySQL 控制各 20 项通过，租约取得/释放各 20、�
 生产 dev runtime 支持或真实模型效果证据，生产持久业务仍 NO-GO。
 最终文档提交自身的精确 SHA 与四 Job 回执见工作区根 `release-gate-evidence.json`。
 
-FastAPI REST `/api/query` 的回答缓存保留 24 小时，但未绑定文件活性、版本及
-失效依赖。`REV-A03` 的用户影响取决于“重新分析当前文件”或“显式历史快照”
-合同；仅影响 REST 回答缓存，LangGraph Chat UI 主路径绕过此缓存，租户主体
-仍有效。本轮失效模拟不是实际文件删除/过期/哈希漂移 E2E，也未修改缓存。
-
 任意 Python 代码执行已永久移出运行时。部署环境中残留的
 `ENABLE_CODE_EXECUTION` 会被忽略，不能注册或调用 `execute_python_code`。
+
+## REST 回答缓存与对话历史
+
+FastAPI `/api/query` 使用新命名空间 `agent:zero-tool-v1:`，保留主体、模型、
+配置与工具策略隔离，TTL 仍为 24 小时。旧命名空间条目不再命中，等待自然过期，
+不清空 Redis。含受管文件引用标记或显式 UUID 的请求直接绕过回答缓存读写。
+
+其他请求仅在服务端 run 状态确认零工具执行、模型正常结束且回答完整时写缓存。
+观察状态缺失或 unknown、任何工具参与（包括搜索、内置工具、子 Agent）、
+工具失败、预算拒绝、取消、超时或部分结果均不缓存；不能只凭顶层最终文字判断。
+父子图、并行和 worker 共用观察状态，不跨 run 复用。缓存命中仍经过授权、
+输入/输出、租约及 deadline 约束。普通零工具问答保留缓存收益，工具型 REST
+重复请求可能增加耗时和模型调用，原有 8/12 预算不变；独立搜索工具自身缓存不变。
+
+该策略收紧 `REV-A03` 的 REST 当前文件答案合同。LangGraph Chat UI 不使用这层
+回答缓存，历史卡片是已授权的计算时快照；来源失效阻止新的统计和下载，不抹除旧对话。
 
 ## 验证清单
 
@@ -508,12 +590,24 @@ python -m alembic -c alembic.ini heads
 
 ```powershell
 Set-Location agent_chatui
+pnpm test
 pnpm typecheck
 pnpm lint
 pnpm format:check
 pnpm build
 Set-Location ..
 ```
+
+`pnpm test` 使用已有 esbuild 打包实际模块，再运行 Node 行为测试并清理临时目录，
+覆盖结果解析、精确字符串、消息匹配、工具补齐和下载状态；不代替浏览器验收。
+
+仓库根入口 `scripts/verify_controlled_analysis_chat.py` 用于可重复的本机离线
+聊天联调：公开合成 CSV/JSON、隔离 SQLite/文件根、真实 FastAPI/LangGraph API/
+Next 页面与 loopback 模型提供方，租约存储使用记录型替身。默认 `--mode prepare`
+只注册/登录/上传，`--mode full` 才走真实聊天工具、REST 和下载对照；
+`--self-test` 仅自检。Node 22.x、pnpm 10.5.1、Playwright/Chromium 及隔离参数见
+[浏览器验证说明](.trae/specs/integrate-controlled-analysis-chat/browser-validation.md)。
+此入口不调用真实模型/搜索，不证明生产静态部署、真实 Redis 容量或模型效果。
 
 Compose 静态校验和工作区检查：
 
@@ -523,6 +617,24 @@ docker buildx bake -f docker-config/docker-compose.yml --print
 git diff --check
 git status --short
 ```
+
+### 2026-11-02 聊天接入验证
+
+当前为 `main @ 0aca6ee` 叠加统计后端与聊天接入的未提交工作树。以下引用已有
+实际执行证据，本次文档同步不重跑测试；前轮后端 813 项保留在
+[后端首轮验收](.trae/specs/deliver-controlled-analysis-slice/validation.md)。
+
+| 证据归属 | 已取得结果与边界 |
+| --- | --- |
+| [主 Agent 后端回归](.trae/specs/integrate-controlled-analysis-chat/backend-validation.md) | 全量 958 passed，99.04 秒；slow worker 补测 10 passed，不另加到总数。isort、134 个适用包 runtime lock（`support_checked=false`）、Alembic 唯一 head `b6f4e8c2a9d1`、release contracts 通过 |
+| [独立前端验证](.trae/specs/integrate-controlled-analysis-chat/frontend-validation.md) | 120 passed；Node 22.22.2 / pnpm 10.5.1 下 typecheck、零警告 lint、format:check、build 通过 |
+| [浏览器联调](.trae/specs/integrate-controlled-analysis-chat/browser-validation.md) | 最终静止源码 full 通过：8 回合（2 澄清、6 统计）、14 次 loopback SDK 请求、7 次真实下载；来源失效、重试、中止和迟到响应隔离通过 |
+
+最终证据和本机验收完成状态汇总于
+[本轮验收汇总](.trae/specs/integrate-controlled-analysis-chat/validation.md)，
+新工作树未提交、未推送、未部署；
+旧 HEAD 的 Hosted 成功不覆盖新增代码。真实模型效果、生产运行时和自动异地
+备份仍是独立门禁，生产持久业务保持 **NO-GO**。
 
 ### 2026-10-27 文档复审收口与验证边界
 
